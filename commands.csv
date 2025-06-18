@@ -1,0 +1,3 @@
+Command,Brand,Type
+show run,cisco_ios,
+show ip interface brief,cisco_ios,
