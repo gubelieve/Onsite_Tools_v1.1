@@ -1,0 +1,484 @@
+Device: SS-SW (10.0.251.63)
+Date: 2025-06-18 15:07:34
+--------------------------------------------------
+
+Command: show run
+------------------------------
+Building configuration...
+
+Current configuration : 11811 bytes
+!
+! Last configuration change at 14:58:43 UTC Wed Jun 18 2025 by admin
+! NVRAM config last updated at 14:58:44 UTC Wed Jun 18 2025 by admin
+!
+version 17.3
+service timestamps debug datetime msec
+service timestamps log datetime msec
+service call-home
+platform punt-keepalive disable-kernel-core
+!
+hostname SS-SW
+!
+!
+vrf definition HP
+ rd 65410:1
+ route-target export 65410:1
+ route-target import 65410:1
+ !
+ address-family ipv4
+ exit-address-family
+!
+vrf definition Mgmt-vrf
+ !
+ address-family ipv4
+ exit-address-family
+ !
+ address-family ipv6
+ exit-address-family
+!
+vrf definition UIH
+ !
+ address-family ipv4
+ exit-address-family
+!
+!
+no aaa new-model
+clock timezone UTC 7 0
+switch 1 provision c9300-24t
+!
+!
+!
+!
+ip routing
+!
+ip domain name ktcs.ait.co.th
+!
+ip dhcp pool nana-guest
+ network 100.97.244.0 255.255.255.0
+ default-router 100.97.244.1 
+ dns-server 10.0.253.196 
+!
+ip dhcp pool nana-client
+ network 10.12.32.0 255.255.255.0
+ default-router 10.12.32.200 
+ dns-server 10.0.253.196 
+!
+!
+!
+login on-success log
+!
+!
+!
+!
+!
+!
+!
+no device-tracking logging theft
+!
+crypto pki trustpoint SLA-TrustPoint
+ enrollment pkcs12
+ revocation-check crl
+!
+crypto pki trustpoint TP-self-signed-439913330
+ enrollment selfsigned
+ subject-name cn=IOS-Self-Signed-Certificate-439913330
+ revocation-check none
+ rsakeypair TP-self-signed-439913330
+!
+!
+crypto pki certificate chain SLA-TrustPoint
+ certificate ca 01
+  30820321 30820209 A0030201 02020101 300D0609 2A864886 F70D0101 0B050030 
+  32310E30 0C060355 040A1305 43697363 6F312030 1E060355 04031317 43697363 
+  6F204C69 63656E73 696E6720 526F6F74 20434130 1E170D31 33303533 30313934 
+  3834375A 170D3338 30353330 31393438 34375A30 32310E30 0C060355 040A1305 
+  43697363 6F312030 1E060355 04031317 43697363 6F204C69 63656E73 696E6720 
+  526F6F74 20434130 82012230 0D06092A 864886F7 0D010101 05000382 010F0030 
+  82010A02 82010100 A6BCBD96 131E05F7 145EA72C 2CD686E6 17222EA1 F1EFF64D 
+  CBB4C798 212AA147 C655D8D7 9471380D 8711441E 1AAF071A 9CAE6388 8A38E520 
+  1C394D78 462EF239 C659F715 B98C0A59 5BBB5CBD 0CFEBEA3 700A8BF7 D8F256EE 
+  4AA4E80D DB6FD1C9 60B1FD18 FFC69C96 6FA68957 A2617DE7 104FDC5F EA2956AC 
+  7390A3EB 2B5436AD C847A2C5 DAB553EB 69A9A535 58E9F3E3 C0BD23CF 58BD7188 
+  68E69491 20F320E7 948E71D7 AE3BCC84 F10684C7 4BC8E00F 539BA42B 42C68BB7 
+  C7479096 B4CB2D62 EA2F505D C7B062A4 6811D95B E8250FC4 5D5D5FB8 8F27D191 
+  C55F0D76 61F9A4CD 3D992327 A8BB03BD 4E6D7069 7CBADF8B DF5F4368 95135E44 
+  DFC7C6CF 04DD7FD1 02030100 01A34230 40300E06 03551D0F 0101FF04 04030201 
+  06300F06 03551D13 0101FF04 05300301 01FF301D 0603551D 0E041604 1449DC85 
+  4B3D31E5 1B3E6A17 606AF333 3D3B4C73 E8300D06 092A8648 86F70D01 010B0500 
+  03820101 00507F24 D3932A66 86025D9F E838AE5C 6D4DF6B0 49631C78 240DA905 
+  604EDCDE FF4FED2B 77FC460E CD636FDB DD44681E 3A5673AB 9093D3B1 6C9E3D8B 
+  D98987BF E40CBD9E 1AECA0C2 2189BB5C 8FA85686 CD98B646 5575B146 8DFC66A8 
+  467A3DF4 4D565700 6ADF0F0D CF835015 3C04FF7C 21E878AC 11BA9CD2 55A9232C 
+  7CA7B7E6 C1AF74F6 152E99B7 B1FCF9BB E973DE7F 5BDDEB86 C71E3B49 1765308B 
+  5FB0DA06 B92AFE7F 494E8A9E 07B85737 F3A58BE1 1A48A229 C37C1E69 39F08678 
+  80DDCD16 D6BACECA EEBC7CF9 8428787B 35202CDC 60E4616A B623CDBD 230E3AFB 
+  418616A9 4093E049 4D10AB75 27E86F73 932E35B5 8862FDAE 0275156F 719BB2F0 
+  D697DF7F 28
+  	quit
+crypto pki certificate chain TP-self-signed-439913330
+ certificate self-signed 01
+  3082032E 30820216 A0030201 02020101 300D0609 2A864886 F70D0101 05050030 
+  30312E30 2C060355 04031325 494F532D 53656C66 2D536967 6E65642D 43657274 
+  69666963 6174652D 34333939 31333333 30301E17 0D323530 32303630 34343032 
+  385A170D 33353032 30363034 34303238 5A303031 2E302C06 03550403 1325494F 
+  532D5365 6C662D53 69676E65 642D4365 72746966 69636174 652D3433 39393133 
+  33333030 82012230 0D06092A 864886F7 0D010101 05000382 010F0030 82010A02 
+  82010100 C547BD95 8F907E00 3C6CACE8 9383E9F1 03171E60 2661F567 23A82660 
+  81813328 44BC46B4 E9E21544 46454318 9007AD7B A315DEEB F8B5CE88 A93483A6 
+  69841981 6CED39BD F7C96536 30F88287 9B95D190 E3F23BE3 0BF96EE5 3CEF6BE4 
+  B837108B 00B1E732 669AD9EF 6F2FAB07 227517EA A8AAC7F7 FDB4100A A6AB5C4F 
+  4F309ADA 3FAE7567 3679CFD3 E729FDE5 4CFA99BD ED8A331B 5CBB93FC 3DAB7BED 
+  365517DB 5CB46C15 956439CD EE47AC79 3B06C61B C03EBDAF 1F34E5E2 7EB9634C 
+  C763F6AA F0A7BD45 AB9FC4FE BC5D5C86 24ED81B4 8A4EA98C D0A3FDB5 084CBE9D 
+  00C9C585 DF408A51 EE5C4396 DA3BDF50 E74F2037 7F5002A2 7631209C 50D2ECA0 
+  6BAC55EB 02030100 01A35330 51300F06 03551D13 0101FF04 05300301 01FF301F 
+  0603551D 23041830 1680140C 46B21A6E F4C4381F 85433F4C 07AF2285 C9BEFF30 
+  1D060355 1D0E0416 04140C46 B21A6EF4 C4381F85 433F4C07 AF2285C9 BEFF300D 
+  06092A86 4886F70D 01010505 00038201 0100A828 74E84E0F B15F4A35 D05EEA7D 
+  A92BB616 E8DB5792 3F20B936 586F88A0 61656E1A 91337808 C3A11CF2 BF0A966D 
+  26B883CD 7C830A00 6568A076 AD7B07A3 7C0FD276 0BB8C101 75E97CB9 3D193BFC 
+  B3F2933B F09E8ABE F7F98B37 E67D4833 43C4AD88 A9211E9E 4A3468A7 93B33910 
+  E5A6B678 9BAC1E5A 2968859B 293250C8 3CECFACA 48409C96 8751AEA5 70DED6D9 
+  5B547106 39E4EB35 85FDE57E B5BA8D8C 01634739 6A7C5649 C74CF223 EC96A894 
+  4F74D260 BD693E74 89AF60B4 88777598 FFCD157C 34AADD44 59A6C037 83767505 
+  4F39720A 50D5381E D84D59C0 6FA820A3 74111C21 9C153D15 1084BA3C F5DFD738 
+  9E2669DC 2862AD50 88FC808E 9EE2A2CF 5FDD
+  	quit
+!
+!
+license boot level network-advantage
+!
+!
+diagnostic bootup level minimal
+!
+spanning-tree mode rapid-pvst
+spanning-tree extend system-id
+spanning-tree vlan 1-4094 priority 12288
+memory free low-watermark processor 133114
+!
+username admin privilege 15 password 0 P@ssw0rd
+username sdaadmin privilege 15 password 0 C!sc0123
+!
+redundancy
+ mode sso
+!
+!
+!
+!
+!
+!
+transceiver type all
+ monitoring
+!
+vlan 2000
+ name VN_INFRA
+!
+vlan 2001
+ name VN_WIRELESS
+!
+vlan 2002 
+!
+!
+class-map match-any system-cpp-police-ewlc-control
+  description EWLC Control 
+class-map match-any system-cpp-police-topology-control
+  description Topology control
+class-map match-any system-cpp-police-sw-forward
+  description Sw forwarding, L2 LVX data packets, LOGGING, Transit Traffic
+class-map match-any system-cpp-default
+  description EWLC Data, Inter FED Traffic 
+class-map match-any system-cpp-police-sys-data
+  description Openflow, Exception, EGR Exception, NFL Sampled Data, RPF Failed
+class-map match-any system-cpp-police-punt-webauth
+  description Punt Webauth
+class-map match-any system-cpp-police-l2lvx-control
+  description L2 LVX control packets
+class-map match-any system-cpp-police-forus
+  description Forus Address resolution and Forus traffic
+class-map match-any system-cpp-police-multicast-end-station
+  description MCAST END STATION
+class-map match-any system-cpp-police-high-rate-app
+  description High Rate Applications 
+class-map match-any system-cpp-police-multicast
+  description MCAST Data
+class-map match-any system-cpp-police-l2-control
+  description L2 control
+class-map match-any system-cpp-police-dot1x-auth
+  description DOT1X Auth
+class-map match-any system-cpp-police-data
+  description ICMP redirect, ICMP_GEN and BROADCAST
+class-map match-any system-cpp-police-stackwise-virt-control
+  description Stackwise Virtual OOB
+class-map match-any non-client-nrt-class
+class-map match-any system-cpp-police-routing-control
+  description Routing control and Low Latency
+class-map match-any system-cpp-police-protocol-snooping
+  description Protocol snooping
+class-map match-any system-cpp-police-dhcp-snooping
+  description DHCP snooping
+class-map match-any system-cpp-police-ios-routing
+  description L2 control, Topology control, Routing control, Low Latency
+class-map match-any system-cpp-police-system-critical
+  description System Critical and Gold Pkt
+class-map match-any system-cpp-police-ios-feature
+  description ICMPGEN,BROADCAST,ICMP,L2LVXCntrl,ProtoSnoop,PuntWebauth,MCASTData,Transit,DOT1XAuth,Swfwd,LOGGING,L2LVXData,ForusTraffic,ForusARP,McastEndStn,Openflow,Exception,EGRExcption,NflSampled,RpfFailed
+!
+policy-map system-cpp-policy
+!
+! 
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+interface Loopback0
+ ip address 10.12.231.254 255.255.255.255
+!
+interface GigabitEthernet0/0
+ vrf forwarding Mgmt-vrf
+ no ip address
+ negotiation auto
+!
+interface GigabitEthernet1/0/1
+ description ### To OOB ToR ###
+ switchport access vlan 251
+ switchport mode access
+!
+interface GigabitEthernet1/0/2
+ description Connected to BD-SW
+ switchport trunk allowed vlan 10,251,2000-2002
+ switchport mode trunk
+!
+interface GigabitEthernet1/0/3
+ description Connected to WLC AirOS
+ switchport mode trunk
+!
+interface GigabitEthernet1/0/4
+ description WLC9800_Chassis
+ switchport access vlan 251
+ switchport mode access
+!
+interface GigabitEthernet1/0/5
+!
+interface GigabitEthernet1/0/6
+!
+interface GigabitEthernet1/0/7
+!
+interface GigabitEthernet1/0/8
+!
+interface GigabitEthernet1/0/9
+!
+interface GigabitEthernet1/0/10
+!
+interface GigabitEthernet1/0/11
+!
+interface GigabitEthernet1/0/12
+!
+interface GigabitEthernet1/0/13
+!
+interface GigabitEthernet1/0/14
+!
+interface GigabitEthernet1/0/15
+!
+interface GigabitEthernet1/0/16
+!
+interface GigabitEthernet1/0/17
+!
+interface GigabitEthernet1/0/18
+!
+interface GigabitEthernet1/0/19
+ switchport trunk native vlan 142
+ switchport trunk allowed vlan 251
+ switchport mode trunk
+!
+interface GigabitEthernet1/0/20
+!
+interface GigabitEthernet1/0/21
+!
+interface GigabitEthernet1/0/22
+!
+interface GigabitEthernet1/0/23
+!
+interface GigabitEthernet1/0/24
+!
+interface GigabitEthernet1/1/1
+!
+interface GigabitEthernet1/1/2
+!
+interface GigabitEthernet1/1/3
+!
+interface GigabitEthernet1/1/4
+!
+interface TenGigabitEthernet1/1/1
+!
+interface TenGigabitEthernet1/1/2
+!
+interface TenGigabitEthernet1/1/3
+!
+interface TenGigabitEthernet1/1/4
+!
+interface TenGigabitEthernet1/1/5
+!
+interface TenGigabitEthernet1/1/6
+!
+interface TenGigabitEthernet1/1/7
+!
+interface TenGigabitEthernet1/1/8
+!
+interface FortyGigabitEthernet1/1/1
+!
+interface FortyGigabitEthernet1/1/2
+!
+interface TwentyFiveGigE1/1/1
+!
+interface TwentyFiveGigE1/1/2
+!
+interface AppGigabitEthernet1/0/1
+!
+interface Vlan1
+ ip dhcp client client-id ascii cisco-e069.ba3b.8747-Vl1
+ ip address dhcp
+ shutdown
+!
+interface Vlan10
+ ip address 10.10.0.1 255.255.255.252
+!
+interface Vlan251
+ ip address 10.0.251.63 255.255.255.0 secondary
+ ip address 10.0.251.25 255.255.255.0
+ no ip redirects
+ no ip proxy-arp
+ ip nat outside
+!
+interface Vlan2000
+ ip address 10.12.227.2 255.255.255.252
+!
+interface Vlan2001
+ ip address 10.12.227.6 255.255.255.252
+!
+interface Vlan2002
+ ip address 10.12.227.10 255.255.255.252
+ ip nat inside
+!
+router bgp 64603
+ bgp router-id interface Loopback0
+ bgp log-neighbor-changes
+ bgp graceful-restart
+ redistribute static
+ neighbor 10.12.227.1 remote-as 64602
+ neighbor 10.12.227.1 update-source Vlan2000
+ neighbor 10.12.227.1 next-hop-self
+ neighbor 10.12.227.5 remote-as 64602
+ neighbor 10.12.227.5 update-source Vlan2001
+ neighbor 10.12.227.9 remote-as 64602
+ neighbor 10.12.227.9 update-source Vlan2002
+ default-information originate
+!
+ip default-gateway 10.0.251.1
+ip forward-protocol nd
+ip http server
+ip http authentication local
+ip http secure-server
+ip http client source-interface Vlan1
+ip nat inside source list 99 interface Vlan251 overload
+ip route 0.0.0.0 0.0.0.0 10.0.251.1
+ip ssh source-interface Vlan251
+!
+!
+!
+ip access-list standard 99
+ 10 permit 100.97.0.0 0.0.255.255
+!
+!
+!
+control-plane
+ service-policy input system-cpp-policy
+!
+!
+line con 0
+ stopbits 1
+line vty 0 4
+ login local
+ transport input ssh
+line vty 5 31
+ login
+ transport input ssh
+!
+call-home
+ ! If contact email address in call-home is configured as sch-smart-licensing@cisco.com
+ ! the email address configured in Cisco Smart License Portal will be used as contact email address to send SCH notifications.
+ contact-email-addr sch-smart-licensing@cisco.com
+ profile "CiscoTAC-1"
+  active
+  destination transport-method http
+ntp server time.navy.mi.th
+!
+!
+!
+!
+!
+end
+
+
+==================================================
+
+Command: show ip interface brief
+------------------------------
+Interface              IP-Address      OK? Method Status                Protocol
+Vlan1                  unassigned      YES DHCP   administratively down down    
+Vlan10                 10.10.0.1       YES NVRAM  up                    up      
+Vlan251                10.0.251.25     YES NVRAM  up                    up      
+Vlan2000               10.12.227.2     YES NVRAM  up                    up      
+Vlan2001               10.12.227.6     YES NVRAM  up                    up      
+Vlan2002               10.12.227.10    YES NVRAM  up                    up      
+GigabitEthernet0/0     unassigned      YES NVRAM  down                  down    
+GigabitEthernet1/0/1   unassigned      YES unset  up                    up      
+GigabitEthernet1/0/2   unassigned      YES unset  down                  down    
+GigabitEthernet1/0/3   unassigned      YES unset  up                    up      
+GigabitEthernet1/0/4   unassigned      YES unset  down                  down    
+GigabitEthernet1/0/5   unassigned      YES unset  down                  down    
+GigabitEthernet1/0/6   unassigned      YES unset  down                  down    
+GigabitEthernet1/0/7   unassigned      YES unset  down                  down    
+GigabitEthernet1/0/8   unassigned      YES unset  down                  down    
+GigabitEthernet1/0/9   unassigned      YES unset  down                  down    
+GigabitEthernet1/0/10  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/11  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/12  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/13  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/14  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/15  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/16  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/17  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/18  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/19  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/20  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/21  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/22  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/23  unassigned      YES unset  down                  down    
+GigabitEthernet1/0/24  unassigned      YES unset  down                  down    
+GigabitEthernet1/1/1   unassigned      YES unset  down                  down    
+GigabitEthernet1/1/2   unassigned      YES unset  down                  down    
+GigabitEthernet1/1/3   unassigned      YES unset  down                  down    
+GigabitEthernet1/1/4   unassigned      YES unset  down                  down    
+Te1/1/1                unassigned      YES unset  down                  down    
+Te1/1/2                unassigned      YES unset  down                  down    
+Te1/1/3                unassigned      YES unset  down                  down    
+Te1/1/4                unassigned      YES unset  down                  down    
+Te1/1/5                unassigned      YES unset  down                  down    
+Te1/1/6                unassigned      YES unset  down                  down    
+Te1/1/7                unassigned      YES unset  down                  down    
+Te1/1/8                unassigned      YES unset  down                  down    
+Fo1/1/1                unassigned      YES unset  down                  down    
+Fo1/1/2                unassigned      YES unset  down                  down    
+TwentyFiveGigE1/1/1    unassigned      YES unset  down                  down    
+TwentyFiveGigE1/1/2    unassigned      YES unset  down                  down    
+Ap1/0/1                unassigned      YES unset  up                    up      
+Loopback0              10.12.231.254   YES NVRAM  up                    up      
+
+==================================================
+

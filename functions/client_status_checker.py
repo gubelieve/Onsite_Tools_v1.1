@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QTableWidgetItem, QFileDialog, QMessageBox,
                              QHeaderView, QProgressBar)
 from PySide6.QtCore import Qt, QThread, Signal
+import shutil
 
 class SSHWorker(QThread):
     status_update = Signal(str, str, str)  # site, mac, status
@@ -70,10 +71,24 @@ class ClientStatusChecker(QWidget):
                 border-radius: 3px;
             }
         """)
-        browse_button = QPushButton("Browse Excel File")
+        browse_button = QPushButton("Browse CSV File")
         browse_button.clicked.connect(self.browse_file)
+        
+        # Add download template button
+        download_template_button = QPushButton("Download Template")
+        download_template_button.clicked.connect(self.download_template)
+        download_template_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        
         file_layout.addWidget(self.file_path_label)
         file_layout.addWidget(browse_button)
+        file_layout.addWidget(download_template_button)
         layout.addLayout(file_layout)
         
         # Site Selection Section
@@ -88,10 +103,12 @@ class ClientStatusChecker(QWidget):
         cred_layout = QHBoxLayout()
         cred_layout.addWidget(QLabel("Username:"))
         self.username_input = QLineEdit()
+        self.username_input.setText("sdaadmin")  # Set default username
         cred_layout.addWidget(self.username_input)
         cred_layout.addWidget(QLabel("Password:"))
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_input.setText("C!sc0123")  # Set default password
         cred_layout.addWidget(self.password_input)
         layout.addLayout(cred_layout)
         
@@ -143,19 +160,47 @@ class ClientStatusChecker(QWidget):
     def browse_file(self):
         file_name, _ = QFileDialog.getOpenFileName(
             self,
-            "Select Excel File",
+            "Select CSV File",
             "",
-            "Excel Files (*.xlsx *.xls);;All Files (*)"
+            "CSV Files (*.csv);;All Files (*)"
         )
         
         if file_name:
             try:
-                self.excel_data = pd.read_excel(file_name)
+                self.excel_data = pd.read_csv(file_name)
                 self.file_path_label.setText(os.path.basename(file_name))
                 self.update_site_combo()
                 self.check_button.setEnabled(True)
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to read Excel file: {str(e)}")
+                QMessageBox.critical(self, "Error", f"Failed to read CSV file: {str(e)}")
+    
+    def download_template(self):
+        try:
+            # Get the template file path
+            template_path = os.path.join('templates', 'client_list_template.csv')
+            
+            # Ask user where to save the file
+            save_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Template File",
+                "client_list_template.csv",
+                "CSV Files (*.csv);;All Files (*)"
+            )
+            
+            if save_path:
+                # Copy template to selected location
+                shutil.copy2(template_path, save_path)
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    f"Template file has been saved to:\n{save_path}"
+                )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to download template: {str(e)}"
+            )
     
     def update_site_combo(self):
         if self.excel_data is not None:
@@ -199,7 +244,7 @@ class ClientStatusChecker(QWidget):
     
     def validate_inputs(self):
         if self.excel_data is None:
-            QMessageBox.warning(self, "Warning", "Please select an Excel file first.")
+            QMessageBox.warning(self, "Warning", "Please select a CSV file first.")
             return False
             
         if not self.username_input.text() or not self.password_input.text():
