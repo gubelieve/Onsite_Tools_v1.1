@@ -1,4 +1,4 @@
-from app.tools import (calculator, cdp_inventory, get_inventory, interface_report, lldp_inventory,
+from app.tools import (cdp_inventory, get_inventory, interface_report, lldp_inventory,
                        security_health_check as shc, snmp_inventory, verify_snmp_user)
 
 CDP = """-------------------------
@@ -176,11 +176,3 @@ def test_shc_model_and_version():
     assert shc.extract_model(text) == "C9500-24Y4C"
     assert shc.extract_version(text) == "17.12.04"
 
-
-def test_calculator_is_safe():
-    calc = calculator.calculate
-    assert calc({"expression": "2+3*4"})["result"] == "14"
-    assert calc({"expression": "(1+2)/4"})["result"] == "0.75"
-    assert calc({"expression": "10/0"})["result"] == "Error"
-    assert calc({"expression": "__import__('os')"})["result"] == "Error"
-    assert calc({"expression": ""})["result"] == "Error"

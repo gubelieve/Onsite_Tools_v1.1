@@ -33,7 +33,6 @@ Log ของทุกการ run อยู่ที่ `logs/<tool>/<วั�
 
 | Tool | v1.1 module | หมายเหตุ |
 |------|-------------|----------|
-| Backup Configurations | backup_configurations | เลือกคำสั่งจาก `commands.csv` (เพิ่ม/ลบได้ในหน้าเว็บ) |
 | Config Devices | config_devices + config_devices_v2 | Verify/Config mode, คอลัมน์ผลลัพธ์ต่อคำสั่ง, Generate Report (ต้องติดตั้ง ydata-profiling) |
 | IOS Upgrade | upgrade_ios | 6 stage, FTP server ต้องเปิดเอง, ตรวจ MD5, install/reload |
 | Client Status Checker | client_status_checker | หา MAC ใน mac table / ARP |
@@ -48,7 +47,6 @@ Log ของทุกการ run อยู่ที่ `logs/<tool>/<วั�
 | DNAC Port Assignment | dnac_port_assignment | network-device + SDA port assignments |
 | SD-WAN API (Site List) | sd_wan_api | POST site list ไป vManage แล้ว verify |
 | Capture DNAC | capture_dnac | Selenium screenshot (ต้องมี Chrome) |
-| Calculator | calculator | – |
 
 ## ความแตกต่างจาก v1.1 ที่ควรรู้
 
@@ -66,7 +64,6 @@ Onsite_Tools_v2/
 ├── run.bat / run.sh / run_lan.bat   ตัวเปิดโปรแกรม (สร้าง .venv + ติดตั้ง + เปิด browser)
 ├── requirements.txt
 ├── settings.json                    port, ค่า default ต่าง ๆ
-├── commands.csv                     command library ของ Backup Configurations
 ├── templates/                       CSV template ทุกเครื่องมือ + shc_template.csv
 ├── static/                          index.html, app.js, style.css  (frontend)
 └── app/

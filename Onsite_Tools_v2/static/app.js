@@ -319,8 +319,6 @@
     panel.innerHTML = "";
     panel.append(el("h2", null, tool.name), el("p", { class: "tool-desc" }, tool.description));
 
-    if (tool.client === "calculator") { panel.append(renderCalculator()); return; }
-
     const grid = el("div", { class: "form-grid" });
     for (const f of tool.fields) grid.append(makeField(f));
     panel.append(grid);
@@ -475,25 +473,6 @@
   function applyFilter(text) {
     const f = (text || "").toLowerCase();
     document.querySelectorAll("#table-wrap tbody tr").forEach((tr) => { tr.hidden = f && !tr.textContent.toLowerCase().includes(f); });
-  }
-
-  // ---------------------------------------------------------------- calculator
-  function renderCalculator() {
-    const box = el("div", { class: "calc" });
-    const disp = el("input", { type: "text", class: "display", readonly: true, value: "" });
-    const keys = el("div", { class: "keys" });
-    const add = (t) => { if (disp.value === "Error") disp.value = ""; disp.value += t; };
-    for (const t of ["7", "8", "9", "/", "4", "5", "6", "*", "1", "2", "3", "-", "0", ".", "=", "+"]) {
-      keys.append(el("button", { class: "btn", onclick: async () => {
-        if (t === "=") { try { const r = await postJson("/api/tools/calculator/action/calculate", { expression: disp.value }); disp.value = r.result; } catch (e) { disp.value = "Error"; } }
-        else add(t);
-      } }, t));
-    }
-    keys.append(el("button", { class: "btn", onclick: () => (disp.value = disp.value.slice(0, -1)) }, "⌫"),
-      el("button", { class: "btn", onclick: () => add("(") }, "("), el("button", { class: "btn", onclick: () => add(")") }, ")"),
-      el("button", { class: "btn btn-danger", onclick: () => (disp.value = "") }, "C"));
-    box.append(disp, keys);
-    return box;
   }
 
   // ---------------------------------------------------------------- routing / boot
