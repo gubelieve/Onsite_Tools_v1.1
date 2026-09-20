@@ -1,12 +1,15 @@
 /**
  * IOS Upgrade - multi-stage Cisco IOS / IOS-XE upgrade. Each stage is a separate run so the results can be
- * reviewed in between. An FTP server serving the image must be started manually (FileZilla Server, IIS, ...).
+ * reviewed in between. Stage 1 can transfer the image with the built-in FTP server (started automatically for the
+ * run), by SCP push (nothing listens on the PC) or from an external FTP server that is already running.
  */
 import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import type { JobContext } from "../jobs"
 import type { ToolDevice } from "../inventory"
+import { SingleFileFtpServer } from "../net/ftp-server"
+import { scpPush } from "../net/scp"
 import { SshSession } from "../net/ssh"
 import { hms } from "../paths"
 import { localIp } from "../settings"
@@ -29,10 +32,11 @@ export const baseName = (file: string) => file.split(/[\\/]/).pop() ?? file
 /** Cisco "copy" refuses some characters in the destination name. */
 export const flashName = (file: string) => baseName(file).replace(/[_ ]/g, "-")
 
-class Stage {
+/** One stage for one device. Exported for the end-to-end test against the fake device. */
+export class Stage {
   hostname: string
   constructor(private ctx: JobContext, private params: Params, private device: ToolDevice, private stage: number,
-              private iosFile: string, private ftpIp: string) {
+              private iosFile: string, private ftpIp: string, private ftp: SingleFileFtpServer | null = null) {
     this.hostname = device.hostname || "Unknown"
   }
 
@@ -108,6 +112,8 @@ class Stage {
   private async upload(s: SshSession) {
     const filename = flashName(this.iosFile)
     const size = fs.statSync(this.iosFile).size
+    if (str(this.params.transferMethod, "ftp-builtin") === "scp") return this.uploadScp(s, filename, size)
+    if (this.ftp) return this.uploadBuiltinFtp(s, filename, size)
     const cmd = `copy ftp://${this.ftpIp}/${baseName(this.iosFile)} flash:${filename}`
     this.emit("Running", `Starting FTP upload of ${filename} from ${this.ftpIp} (${size.toLocaleString()} bytes)`)
     let out = await s.sendTiming(cmd)
@@ -141,6 +147,60 @@ class Stage {
     if (transferred >= size) this.emit("Completed", `IOS uploaded successfully (${size.toLocaleString()} bytes)`, size.toLocaleString(), out)
     else if (transferred > 0) this.emit("Completed", `Transfer stopped growing at ${transferred.toLocaleString()}/${size.toLocaleString()} bytes - verify with Stage 2`, transferred.toLocaleString(), out)
     else this.emit("Failed", "File not found on flash after the copy command", "0", out)
+  }
+
+  /** Built-in FTP: the app serves the image itself, so progress comes straight from the server's byte counter. */
+  private async uploadBuiltinFtp(s: SshSession, filename: string, size: number) {
+    const ftp = this.ftp!
+    const cmd = `copy ftp://${ftp.user}:${ftp.password}@${this.ftpIp}/${ftp.fileName} flash:${filename}`
+    const shown = cmd.replace(ftp.password, "****")
+    this.emit("Running", `Built-in FTP server ${this.ftpIp}:${ftp.port} -> ${filename} (${size.toLocaleString()} bytes)`)
+    let out = await s.sendTiming(cmd, 2000, 20000)
+    if (/Destination filename/i.test(out)) out += await s.sendTiming(filename, 2000, 20000)
+    if (/over ?write|\[confirm\]/i.test(out)) out += await s.sendTiming("", 2000, 20000)
+    const me = this.device.host.split(":")[0]
+    const ticker = setInterval(() => {
+      const t = ftp.transfers.get(me) ?? [...ftp.transfers.values()].find((x) => !x.done)
+      if (t && !t.done) this.emit("Running", `Uploading ${filename}: ${t.sent.toLocaleString()}/${size.toLocaleString()} bytes (${Math.round((t.sent / size) * 100)}%)`, t.sent.toLocaleString())
+    }, 15000)
+    try {
+      // Small images finish while the prompts are still being answered - only wait when the copy is still running.
+      if (!s.endsWithPrompt(out)) out += await s.waitForPrompt(60 * 60)
+    } finally { clearInterval(ticker) }
+    out = out.split(ftp.password).join("****")
+    this.logCmd(shown, out)
+    const copied = /(\d+) bytes copied/.exec(out)
+    if (copied || /\[OK/.test(out)) this.emit("Completed", `IOS uploaded via built-in FTP (${Number(copied?.[1] ?? size).toLocaleString()} bytes)`, String(copied?.[1] ?? size), out)
+    else this.emit("Failed", `FTP copy failed - can the device reach ${this.ftpIp}:${ftp.port}? Check the Windows firewall prompt for Node.js.`, "0", out)
+  }
+
+  /** SCP push: the PC connects to the device, so nothing has to listen on the PC. */
+  private async uploadScp(s: SshSession, filename: string, size: number) {
+    let out = ""
+    const cfg = await s.send("show running-config | include ip scp server", { timeoutSec: 60 })
+    if (!/ip scp server enable/.test(cfg)) {
+      out += await s.sendConfig(["ip scp server enable"])
+      this.emit("Running", "Enabled 'ip scp server enable' on the device (it was off). Not saved to startup-config.", "0", out)
+    }
+    this.emit("Running", `SCP push of ${filename} (${size.toLocaleString()} bytes) - IOS SCP is slower than FTP`)
+    const [host, port] = /^[^:]+:\d+$/.test(this.device.host) ? this.device.host.split(":") : [this.device.host, ""]
+    let last = 0
+    try {
+      await scpPush({
+        host, port: Number(port) || 22, username: str(this.params.username), password: str(this.params.password),
+        localFile: this.iosFile, remotePath: `flash:${filename}`, shouldStop: () => this.ctx.stopRequested,
+        onProgress: (sent) => {
+          if (Date.now() - last < 15000) return
+          last = Date.now()
+          this.emit("Running", `Uploading ${filename}: ${sent.toLocaleString()}/${size.toLocaleString()} bytes (${Math.round((sent / size) * 100)}%)`, sent.toLocaleString())
+        },
+      })
+      this.logCmd(`scp ${baseName(this.iosFile)} -> flash:${filename}`, out + "\nSCP transfer completed")
+      this.emit("Completed", `IOS uploaded via SCP (${size.toLocaleString()} bytes) - verify with Stage 2`, size.toLocaleString(), out)
+    } catch (e) {
+      this.logCmd(`scp -> flash:${filename}`, `${out}\n${(e as Error).message}`, "Failed")
+      this.emit("Failed", `SCP failed: ${(e as Error).message}`, "0", out)
+    }
   }
 
   private async verifyMd5(s: SshSession) {
@@ -199,8 +259,9 @@ export const upgradeIos: ToolDef = {
   id: "upgrade-ios", name: "IOS Upgrade", category: "SSH Tools", order: 15, icon: "upload",
   description: "Multi-stage Cisco IOS/IOS-XE upgrade: verify environment, FTP upload, MD5 check, install, post-checks. Run the stages in order.",
   fields: [
-    { name: "iosFile", label: "IOS image file (path on this PC)", type: "path", kind: "file", required: true, placeholder: "C:\\ftp\\cat9k_iosxe.17.09.05.SPA.bin",
-      help: "The same file must be in the FTP server root." },
+    { name: "iosFile", label: "IOS image file", type: "path", kind: "file", required: true, placeholder: "Click Browse, or paste the full path",
+      browseTitle: "Select the IOS image", browseFilter: "IOS images (*.bin;*.tar;*.img;*.pkg)|*.bin;*.tar;*.img;*.pkg|All files (*.*)|*.*",
+      help: "The file stays where it is on this PC - nothing is copied. With 'External FTP server' the same file must also be in that server's root." },
     ...INVENTORY_FIELDS,
     { name: "username", label: "Username", type: "text", required: true, width: "half", defaultFrom: "username", remember: true },
     { name: "password", label: "Password", type: "password", required: true, width: "half", remember: true },
@@ -208,15 +269,21 @@ export const upgradeIos: ToolDef = {
     { name: "installMethod", label: "Installation method", type: "select", default: "reload", width: "half",
       options: [{ value: "reload", label: "Reload (boot system + reload)" }, { value: "boot", label: "Boot variable change only" },
         { value: "install", label: "Install mode (install add ... activate commit)" }] },
+    { name: "transferMethod", label: "Transfer method (Stage 1)", type: "select", default: "ftp-builtin",
+      options: [{ value: "ftp-builtin", label: "Built-in FTP server - started automatically (recommended)" },
+        { value: "scp", label: "SCP push - nothing listens on this PC (slower; enables 'ip scp server')" },
+        { value: "ftp-external", label: "External FTP server - already running (FileZilla, IIS, ...)" }],
+      help: "Built-in FTP listens on port 21 only while Stage 1 runs, with a one-time password, and serves only the selected image. Allow Node.js in the Windows firewall prompt the first time." },
     { name: "ftpIp", label: "FTP server IP (this PC)", type: "text", width: "half", defaultFrom: "localIp",
-      help: "Auto-detected; edit if the devices reach this PC on another address." },
+      showIf: { transferMethod: "ftp-builtin" }, help: "Address of this PC as seen by the devices. Auto-detected; edit if needed." },
+    { name: "ftpIpExternal", label: "External FTP server IP", type: "text", width: "half", defaultFrom: "localIp",
+      showIf: { transferMethod: "ftp-external" }, help: "Anonymous FTP, or configure 'ip ftp username / password' on the devices." },
     { name: "threads", label: "Max parallel sessions", type: "number", default: 3, min: 1, max: 10, width: "half" },
   ],
   columns: COLUMNS,
   runs: [
     { id: "stage0", label: "Stage 0: Verify Environment", params: { stage: 0 } },
-    { id: "stage1", label: "Stage 1: Upload IOS", params: { stage: 1 },
-      notice: "Before Stage 1, start an FTP server manually (FileZilla Server, IIS, ...):\n1. FTP root = the folder containing the IOS file\n2. Allow anonymous, or configure 'ip ftp username/password' on the devices\n3. The devices must reach this PC on the FTP IP shown in the form" },
+    { id: "stage1", label: "Stage 1: Upload IOS", params: { stage: 1 } },
     { id: "stage2", label: "Stage 2: Verify MD5", params: { stage: 2 } },
     { id: "stage3", label: "Stage 3: Install Image", params: { stage: 3 }, danger: true,
       confirm: "WARNING: this installs the new IOS image on ALL selected devices. Devices will reload and service will be interrupted. Proceed?" },
@@ -231,8 +298,19 @@ export const upgradeIos: ToolDef = {
     if (!devices.length) return
     ctx.setColumns(COLUMNS)
     ctx.summary(`Stage ${stage} - ${STAGES[stage]}: ${devices.length} device(s)`)
-    const ftpIp = str(params.ftpIp).trim() || localIp()
-    await ctx.mapParallel(devices, (d) => new Stage(ctx, params, d, stage, iosFile, ftpIp).run(), num(params.threads, 3))
+    const method = str(params.transferMethod, "ftp-builtin")
+    const ftpIp = (method === "ftp-external" ? str(params.ftpIpExternal) : str(params.ftpIp)).trim() || localIp()
+    let ftp: SingleFileFtpServer | null = null
+    if (stage === 1 && method === "ftp-builtin") {
+      ftp = new SingleFileFtpServer(iosFile, flashName(iosFile))
+      try { await ftp.start(Number(process.env.ONSITE_FTP_PORT) || 21) } catch (e) { ctx.error((e as Error).message); return }
+      ctx.info(`Built-in FTP server started on ${ftpIp}:${ftp.port} for this run (read-only, one-time password, serves only ${ftp.fileName}).`)
+    }
+    try {
+      await ctx.mapParallel(devices, (d) => new Stage(ctx, params, d, stage, iosFile, ftpIp, ftp).run(), num(params.threads, 3))
+    } finally {
+      if (ftp) { await ftp.stop(); ctx.log("Built-in FTP server stopped") }
+    }
     const rows = ctx.rows()
     const failed = rows.filter((r) => ["Failed", "Error"].includes(String(r.Status))).length
     const completed = rows.filter((r) => r.Status === "Completed").length

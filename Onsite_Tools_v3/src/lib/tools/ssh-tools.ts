@@ -37,10 +37,10 @@ export const configDevices: ToolDef = {
     if (!allCommands.length) { ctx.error("Please enter a command to run (or import a list with a 'command' column and tick the option)."); return }
     const configMode = str(params.mode) === "Config mode"
     const columns = [...BASE_COLUMNS, ...allCommands, "Output"]
-    ctx.setColumns(columns, [...BASE_COLUMNS, "Site", ...allCommands, "Output", "Log File"])
+    ctx.setColumns(columns, [...BASE_COLUMNS, "Device Category", ...allCommands, "Output", "Log File"])
     const keys = new Map(devices.map((d) => [d.host, ctx.addRow({
       ...Object.fromEntries(columns.map((c) => [c, "-"])), "IP Address": d.host, Hostname: d.hostname, Status: "Pending",
-      Site: d.site, Output: "", "Log File": "" })]))
+      "Device Category": d.site, Output: "", "Log File": "" })]))
     let ok = 0
     await ctx.mapParallel(devices, async (d) => {
       const key = keys.get(d.host)!
@@ -92,14 +92,14 @@ export const clientStatusChecker: ToolDef = {
   description: "Check on which device a client MAC address is seen (show mac address-table, then show ip arp).",
   fields: [...COMMON_DEVICE_FIELDS,
     { name: "mac", label: "Client MAC address", type: "text", required: true, placeholder: "e.g. aabb.ccdd.eeff" }],
-  columns: ["Site", "Checked On (IP)", "Hostname", "Client MAC", "Status", "Output"],
+  columns: ["Device Category", "Checked On (IP)", "Hostname", "Client MAC", "Status", "Output"],
   runs: [{ id: "run", label: "Check Status" }],
   async run(ctx, params) {
     const mac = str(params.mac).trim().toLowerCase()
     const devices = await devicesFor(ctx, params)
     if (!devices.length) return
     ctx.setColumns(this.columns)
-    const keys = new Map(devices.map((d) => [d.host, ctx.addRow({ Site: d.site, "Checked On (IP)": d.host, Hostname: d.hostname,
+    const keys = new Map(devices.map((d) => [d.host, ctx.addRow({ "Device Category": d.site, "Checked On (IP)": d.host, Hostname: d.hostname,
       "Client MAC": mac, Status: "Pending...", Output: "" })]))
     let found = 0
     await ctx.mapParallel(devices, async (d) => {
@@ -139,9 +139,9 @@ export const getInventory: ToolDef = {
   async run(ctx, params) {
     const devices = await devicesFor(ctx, params)
     if (!devices.length) return
-    ctx.setColumns(this.columns, ["Hostname", "IP Address", "PID", "Serial Number", "Version", "SW Type", "Status", "Site", "Output"])
+    ctx.setColumns(this.columns, ["Hostname", "IP Address", "PID", "Serial Number", "Version", "SW Type", "Status", "Device Category", "Output"])
     const keys = new Map(devices.map((d) => [d.host, ctx.addRow({ Hostname: d.hostname || "N/A", "IP Address": d.host, PID: "N/A",
-      "Serial Number": "N/A", Version: "N/A", "SW Type": "N/A", Status: "Pending...", Site: d.site, Output: "" })]))
+      "Serial Number": "N/A", Version: "N/A", "SW Type": "N/A", Status: "Pending...", "Device Category": d.site, Output: "" })]))
     let ok = 0
     await ctx.mapParallel(devices, async (d) => {
       const key = keys.get(d.host)!
@@ -173,8 +173,8 @@ export const getInventory: ToolDef = {
 function neighbourTool(kind: "cdp" | "lldp"): ToolDef {
   const isCdp = kind === "cdp"
   const columns = isCdp
-    ? ["Device Switch", "Device ID", "IP address", "Platform", "Interface", "Port ID", "Version", "Site", "raw_output"]
-    : ["Device Switch", ...LLDP_FIELDS, "Site", "raw_output"]
+    ? ["Device Switch", "Device ID", "IP address", "Platform", "Interface", "Port ID", "Version", "Device Category", "raw_output"]
+    : ["Device Switch", ...LLDP_FIELDS, "Device Category", "raw_output"]
   const command = isCdp ? "show cdp neighbors detail" : "show lldp neighbors detail"
   return {
     id: `${kind}-inventory`, name: `${kind.toUpperCase()} Inventory`, category: "Inventory", order: isCdp ? 31 : 32, icon: "share",
@@ -185,7 +185,7 @@ function neighbourTool(kind: "cdp" | "lldp"): ToolDef {
       if (!devices.length) return
       ctx.setColumns(columns)
       const blank = (first: string, note: string, site: string, raw: string) =>
-        ({ ...Object.fromEntries(columns.map((c) => [c, ""])), "Device Switch": first, [columns[1]]: note, Site: site, raw_output: raw })
+        ({ ...Object.fromEntries(columns.map((c) => [c, ""])), "Device Switch": first, [columns[1]]: note, "Device Category": site, raw_output: raw })
       let ok = 0
       await ctx.mapParallel(devices, async (d) => {
         try {
@@ -223,9 +223,9 @@ export const verifySnmpUser: ToolDef = {
   async run(ctx, params) {
     const devices = await devicesFor(ctx, params)
     if (!devices.length) return
-    ctx.setColumns(this.columns, [...this.columns.slice(0, 8), "Site", "Status"])
+    ctx.setColumns(this.columns, [...this.columns.slice(0, 8), "Device Category", "Status"])
     const keys = new Map(devices.map((d) => [d.host, ctx.addRow({ ...Object.fromEntries(this.columns.map((c) => [c, ""])),
-      Hostname: d.hostname || "N/A", "IP Management": d.host, Status: "Pending...", Site: d.site })]))
+      Hostname: d.hostname || "N/A", "IP Management": d.host, Status: "Pending...", "Device Category": d.site })]))
     let ok = 0
     await ctx.mapParallel(devices, async (d) => {
       const key = keys.get(d.host)!

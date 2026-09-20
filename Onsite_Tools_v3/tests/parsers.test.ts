@@ -82,7 +82,7 @@ describe("device output parsers", () => {
       "Interface: GigabitEthernet1/0/1,  Port ID (outgoing port): TenGigabitEthernet1/1/1\n\nManagement address(es):\n  IP address: 10.0.0.22\n"
     const [r] = parseCdp(out, "CORE", "HQ")
     expect(r).toMatchObject({ "Device Switch": "CORE", "Device ID": "SW-ACCESS-01", "IP address": "10.0.0.22", Platform: "cisco C9300-24T",
-      Interface: "GigabitEthernet1/0/1", "Port ID": "TenGigabitEthernet1/1/1", Site: "HQ" })
+      Interface: "GigabitEthernet1/0/1", "Port ID": "TenGigabitEthernet1/1/1", "Device Category": "HQ" })
     expect(parseCdp("Total cdp entries displayed : 0\n", "CORE", "HQ")).toEqual([])
   })
 

@@ -39,9 +39,9 @@ export const snmpInventory: ToolDef = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const snmp: any = (await import("net-snmp")).default ?? (await import("net-snmp"))
     const options = { timeout: num(params.timeout, 3) * 1000, retries: 1, version: v3 ? snmp.Version3 : snmp.Version2c }
-    ctx.setColumns(this.columns, [...this.columns, "Site"])
+    ctx.setColumns(this.columns, [...this.columns, "Device Category"])
     const keys = new Map(devices.map((d) => [d.host, ctx.addRow({ Hostname: "", "IP Address": d.host, PID: "", "Serial Number": "", Version: "",
-      "Image Type": "", Status: "Pending...", sysDescr: "", Site: d.site })]))
+      "Image Type": "", Status: "Pending...", sysDescr: "", "Device Category": d.site })]))
     let ok = 0
     await ctx.mapParallel(devices, (d) => new Promise<void>((resolve) => {
       const key = keys.get(d.host)!

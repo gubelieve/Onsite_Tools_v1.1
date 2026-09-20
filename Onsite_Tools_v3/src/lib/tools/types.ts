@@ -29,6 +29,9 @@ export interface FieldDef {
   /** Remembered in the browser together with the credentials. */
   remember?: boolean
   kind?: "file" | "folder"
+  /** Native file dialog (the app runs on the user's own PC): dialog title and a Windows filter string. */
+  browseTitle?: string
+  browseFilter?: string
 }
 
 export interface RunDef {
@@ -65,7 +68,7 @@ export const bool = (v: unknown): boolean => v === true || v === "true" || v ===
 export const INVENTORY_FIELDS: FieldDef[] = [
   { name: "inventoryList", label: "Device list (Site Inventory)", type: "select", default: "All", width: "half",
     source: { type: "inventoryLists" }, help: "Lists are imported in the Site Inventory menu." },
-  { name: "site", label: "Site", type: "select", default: "All", width: "half",
+  { name: "site", label: "Device Category", type: "select", default: "All", width: "half",
     source: { type: "inventorySites", dependsOn: "inventoryList" }, showCount: true },
 ]
 

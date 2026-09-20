@@ -3,7 +3,7 @@ import { countDevices, listNames, sitesOf } from "@/lib/inventory"
 
 export const dynamic = "force-dynamic"
 
-/** Everything a tool form needs for its "Device list" + "Site" selectors in one call. */
+/** Everything a tool form needs for its "Device list" + "Device Category" selectors in one call. */
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams
   const list = q.get("list"), site = q.get("site")

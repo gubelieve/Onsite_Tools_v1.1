@@ -19,13 +19,13 @@ export default async function Dashboard() {
   const stats = [
     { label: "Devices in Site Inventory", value: inv.total.toLocaleString(), href: "/site-inventory" },
     { label: "Device lists", value: inv.lists.length, href: "/site-inventory" },
-    { label: "Sites", value: inv.sites.length, href: "/site-inventory" },
+    { label: "Device categories", value: inv.sites.length, href: "/site-inventory" },
     { label: "Saved runs", value: runCount.toLocaleString(), href: "/history" },
   ]
 
   return (
     <>
-      <PageHeader title="Dashboard" description="Import your device lists in Site Inventory once, then run any tool against a list and site. Everything runs and is stored on this PC." />
+      <PageHeader title="Dashboard" description="Import your device lists in Site Inventory once, then run any tool against a list and device category. Everything runs and is stored on this PC." />
       <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {stats.map((s) => (
           <Link key={s.label} href={s.href} className="bg-card block p-5 transition hover:opacity-90">
