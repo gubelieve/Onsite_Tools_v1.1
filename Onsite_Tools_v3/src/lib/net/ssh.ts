@@ -40,7 +40,7 @@ const AUTODETECT_ORDER: [string, string][] = [
 const REJECTED = /% ?(invalid|unknown|incomplete|ambiguous|unrecognized)|unrecognized command|unknown command|error:|syntax error|invalid input/i
 
 // Old IOS / switches still only offer SHA-1 key exchange, CBC ciphers and ssh-rsa host keys.
-const LEGACY_ALGORITHMS: ConnectConfig["algorithms"] = {
+export const LEGACY_ALGORITHMS: ConnectConfig["algorithms"] = {
   kex: { append: ["diffie-hellman-group14-sha1", "diffie-hellman-group-exchange-sha1", "diffie-hellman-group1-sha1"], prepend: [], remove: [] },
   cipher: { append: ["aes128-cbc", "aes192-cbc", "aes256-cbc", "3des-cbc"], prepend: [], remove: [] },
   serverHostKey: { append: ["ssh-rsa", "ssh-dss"], prepend: [], remove: [] },
@@ -216,6 +216,18 @@ export class SshSession {
     this.write(command)
     const raw = await this.readUntil((b) => re.test(b), (o.timeoutSec ?? 60) * 1000)
     return cleanOutput(raw, command)
+  }
+
+  /** True when `text` already ends with the device prompt (the command has finished). */
+  endsWithPrompt(text: string): boolean {
+    return promptRegex(this.prompt).test(text.replace(/\s+$/, ""))
+  }
+
+  /** Wait for the prompt to come back after a long-running interactive command (e.g. "copy"). */
+  async waitForPrompt(timeoutSec: number): Promise<string> {
+    const re = promptRegex(this.prompt)
+    const raw = await this.readUntil((b) => re.test(b), timeoutSec * 1000)
+    return raw.replace(ANSI, "").replace(/\r/g, "")
   }
 
   /** Write a line and collect whatever arrives until the device goes quiet (for interactive prompts). */

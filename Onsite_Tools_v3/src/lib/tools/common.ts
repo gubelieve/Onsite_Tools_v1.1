@@ -15,7 +15,7 @@ export async function devicesFor(ctx: JobContext, params: Params): Promise<ToolD
   const devices = await getDevices(str(params.inventoryList, "All"), str(params.site, "All"))
   if (!devices.length) {
     if ((await countDevices()) === 0) ctx.error("Site Inventory is empty. Open the 'Site Inventory' menu and import a device list first.")
-    else ctx.warn("No devices in Site Inventory match the selected device list / site.")
+    else ctx.warn("No devices in Site Inventory match the selected device list / device category.")
   }
   return devices
 }

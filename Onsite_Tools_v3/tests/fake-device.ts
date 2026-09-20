@@ -1,8 +1,9 @@
 /** A tiny SSH server that behaves like a Cisco IOS CLI - lets the SSH driver be tested without hardware. */
 import crypto from "node:crypto"
 import { Server, type Connection } from "ssh2"
+import { FtpClient } from "./ftp-client"
 
-export interface FakeDevice { port: number; commands: string[]; close: () => Promise<void> }
+export interface FakeDevice { port: number; commands: string[]; flash: Map<string, Buffer>; close: () => Promise<void> }
 
 const RESPONSES: Record<string, string> = {
   "show version": "Cisco IOS XE Software, Version 17.09.04a\nSW-LAB-01 uptime is 3 weeks\nROM: IOS-XE ROMMON",
@@ -11,11 +12,12 @@ const RESPONSES: Record<string, string> = {
   "show bad": "% Invalid input detected at '^' marker.",
 }
 
-export function startFakeDevice(o: { hostname?: string; username?: string; password?: string; paged?: boolean } = {}): Promise<FakeDevice> {
+export function startFakeDevice(o: { hostname?: string; username?: string; password?: string; ftpPort?: number } = {}): Promise<FakeDevice> {
   const hostname = o.hostname ?? "SW-LAB-01"
   const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 })
   const hostKey = privateKey.export({ type: "pkcs1", format: "pem" }) as string
   const commands: string[] = []
+  const flash = new Map<string, Buffer>()
   const clients = new Set<Connection>()
 
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
@@ -32,6 +34,24 @@ export function startFakeDevice(o: { hostname?: string; username?: string; passw
         session.on("shell", (acceptShell) => {
           const ch = acceptShell()
           let config = false, line = ""
+          let copy: { user: string; pass: string; host: string; file: string } | null = null
+          const runCopy = async (dest: string) => {
+            const job = copy!
+            copy = null
+            try {
+              const ftp = await FtpClient.connect(o.ftpPort ?? 21, job.host)
+              const login = await ftp.login(job.user, job.pass)
+              if (!login.startsWith("230")) throw new Error("%Error opening ftp (Permission denied)")
+              ch.write(`Accessing ftp://${job.host}/${job.file}...\r\nLoading ${job.file} !!!!!!\r\n`)
+              const data = await ftp.download(job.file)
+              ftp.end()
+              flash.set(dest, data)
+              ch.write(`[OK - ${data.length}/4096 bytes]\r\n\r\n${data.length} bytes copied in 1.234 secs (1000 bytes/sec)\r\n`)
+            } catch (e) {
+              ch.write(`${(e as Error).message.startsWith("%") ? (e as Error).message : "%Error opening ftp (Timed out)"}\r\n`)
+            }
+            ch.write(prompt())
+          }
           const prompt = () => `${hostname}${config ? "(config)" : ""}#`
           ch.write(`\r\nWelcome to the lab\r\n\r\n${prompt()}`)
           ch.on("data", (d: Buffer) => {
@@ -41,6 +61,9 @@ export function startFakeDevice(o: { hostname?: string; username?: string; passw
               line = ""
               ch.write(`${cmd}\r\n`) // devices echo what was typed
               if (cmd) commands.push(cmd)
+              if (copy) { void runCopy(cmd || copy.file); return } // answer to "Destination filename [x]?"
+              const m = /^copy ftp:\/\/([^:]+):([^@]+)@([^/]+)\/(\S+) flash:(\S+)$/.exec(cmd)
+              if (m) { copy = { user: m[1], pass: m[2], host: m[3], file: m[4] }; ch.write(`Destination filename [${m[5]}]? `); return }
               if (cmd === "configure terminal") config = true
               else if (cmd === "end") config = false
               else if (cmd === "exit") { ch.close(); return }
@@ -57,7 +80,7 @@ export function startFakeDevice(o: { hostname?: string; username?: string; passw
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
       const port = (server.address() as { port: number }).port
-      resolve({ port, commands, close: () => new Promise((r) => { clients.forEach((c) => c.end()); server.close(() => r()) }) })
+      resolve({ port, commands, flash, close: () => new Promise((r) => { clients.forEach((c) => c.end()); server.close(() => r()) }) })
     })
   })
 }
