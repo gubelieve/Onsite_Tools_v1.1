@@ -1,7 +1,7 @@
 """Config Devices - push/verify commands per device (v1.1 config_devices + config_devices_v2 merged).
 
-* Commands come from the form textarea or from a ``command`` column in the CSV
-  (one cell may hold several lines).
+* Commands come from the form textarea, or per device from a ``command`` column that was
+  imported into Site Inventory (one cell may hold several lines).
 * Verify mode runs the commands as-is; Config mode enters configuration mode first.
 * One result column is created per unique command (like v2), plus the full output.
 * Optional "Generate Report" builds a ydata-profiling HTML report from the results.
@@ -10,7 +10,7 @@ import os
 import re
 from datetime import datetime
 
-from ..core import csvutil
+from ..core import inventory
 from ..core.paths import EXPORTS_DIR
 from . import COMMON_DEVICE_FIELDS
 from ._ssh_common import open_session, save_device_log
@@ -20,15 +20,17 @@ TOOL = {
     "name": "Config Devices",
     "category": "SSH Tools",
     "order": 11,
-    "description": "Run verification or configuration commands on many devices. Commands come from the text box "
-                   "or from a 'command' column in the CSV. Each command gets its own result column.",
-    "fields": [f if f["name"] != "device_file" else dict(f, template="device_list_command_template.csv",
-                                                       help="Columns: Site, IP_Address [, command]. If a 'command' "
-                                                            "column exists it overrides the text box.")
-               for f in COMMON_DEVICE_FIELDS] + [
+    "description": "Run verification or configuration commands on many devices from Site Inventory. Commands come "
+                   "from the text box, or per device from an imported 'command' column. Each command gets its own "
+                   "result column.",
+    "fields": COMMON_DEVICE_FIELDS + [
         {"name": "commands", "label": "Commands (one per line)", "type": "textarea", "rows": 5,
          "placeholder": "show version\nshow ip interface brief",
-         "help": "Used for all devices unless the CSV has a 'command' column."},
+         "help": "Sent to every selected device."},
+        {"name": "per_device_commands", "label": "Use per-device 'command' column from Site Inventory",
+         "type": "checkbox", "default": False, "width": "half",
+         "help": "Import a list with a 'command' column (template: device_list_command_template.csv). Devices "
+                 "without a command fall back to the text box."},
         {"name": "mode", "label": "Mode", "type": "select", "default": "Verify mode",
          "options": ["Verify mode", "Config mode"], "width": "half",
          "help": "Config mode enters 'configure terminal' before sending the commands."},
@@ -42,23 +44,21 @@ TOOL = {
 BASE_COLUMNS = ["IP Address", "Hostname", "Status", "Failure Reason", "Disconnect Status"]
 
 
-def _commands_for(device, params, cmd_col):
-    if cmd_col:
-        text = device["raw"].get(cmd_col, "") or ""
-    else:
-        text = params.get("commands") or ""
+def _commands_for(device, params, per_device):
+    text = ""
+    if per_device:
+        text = next((v for k, v in device["raw"].items() if k.lower() in ("command", "commands")), "") or ""
+    text = text or params.get("commands") or ""
     return [c.strip() for c in str(text).splitlines() if c.strip()]
 
 
 def run(ctx, params):
-    fields, _ = csvutil.read_csv(params.get("device_file"))
-    cmd_col = csvutil.find_col(fields, "command", "commands")
-    devices = csvutil.load_devices(params.get("device_file"), params.get("site", "All"))
+    cmd_col = bool(params.get("per_device_commands"))
+    devices = inventory.devices_for(ctx, params)
     if not devices:
-        ctx.warn("No devices found for the selected site.")
         return
-    if not cmd_col and not (params.get("commands") or "").strip():
-        ctx.error("Please enter a command to run on all devices (or add a 'command' column to the CSV).")
+    if not any(_commands_for(d, params, cmd_col) for d in devices):
+        ctx.error("Please enter a command to run (or import a list with a 'command' column and tick the option).")
         return
     mode = params.get("mode") or "Verify mode"
     all_cmds = []

@@ -14,7 +14,7 @@ import subprocess
 import time
 from datetime import datetime
 
-from ..core import csvutil
+from ..core import inventory
 from ..core.logutil import now_hms
 from ..core.netutil import connect
 from ..core.paths import load_settings
@@ -34,11 +34,11 @@ TOOL = {
         {"name": "ios_file", "label": "IOS image file", "type": "path", "kind": "file", "required": True,
          "filetypes": [["IOS images", "*.bin *.tar *.img"], ["All files", "*.*"]],
          "help": "Local path of the image (must also be in the FTP server root)."},
-        {"name": "device_file", "label": "Device list (CSV/XLSX)", "type": "file", "accept": ".csv,.xlsx,.xls",
-         "required": True, "template": "upgrade_ios_template.csv",
-         "help": "Columns: ip_mgmt, hostname, zone, model, brand, device_type"},
-        {"name": "site", "label": "Site / zone", "type": "select", "default": "All Sites",
-         "source": {"type": "csv_column", "field": "device_file", "column": "zone", "all_label": "All Sites"}},
+        {"name": "inventory_list", "label": "Device list (Site Inventory)", "type": "select", "default": "All",
+         "width": "half", "source": {"type": "inventory_lists", "all_label": "All"},
+         "help": "Import the upgrade list (ip_mgmt, hostname, zone, ...) in the Site Inventory menu."},
+        {"name": "site", "label": "Site / zone", "type": "select", "default": "All", "width": "half",
+         "source": {"type": "inventory_sites", "field": "inventory_list", "all_label": "All"}, "show_count": True},
         {"name": "username", "label": "Username", "type": "text", "required": True, "width": "half",
          "default": _settings.get("default_username", ""), "remember": True},
         {"name": "password", "label": "Password", "type": "password", "required": True, "width": "half",
@@ -442,9 +442,8 @@ def run(ctx, params):
         ctx.error(f"IOS image file not found: {ios_file}")
         return
     params = dict(params, ios_file=ios_file)
-    devices = csvutil.load_devices(params["device_file"], params.get("site", "All Sites"))
+    devices = inventory.devices_for(ctx, params)
     if not devices:
-        ctx.warn("No devices found for the selected site.")
         return
     ctx.set_columns(TOOL["columns"])
     ctx.summary(f"Stage {stage} - {STAGE_NAMES[stage]}: {len(devices)} device(s)")

@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime
 
-from ..core import csvutil
+from ..core import inventory
 from ..core.logutil import now_hms
 
 TOOL = {
@@ -12,16 +12,21 @@ TOOL = {
     "name": "DNAC Port Assignment",
     "category": "Catalyst Center / SD-WAN",
     "order": 61,
-    "description": "For each device in the CSV (hostname, managementIpAddress) fetch the network-device record and its "
+    "description": "For each selected Site Inventory device fetch the Catalyst Center network-device record and its "
                    "SDA port assignments, then save a combined result CSV.",
     "fields": [
         {"name": "base_url", "label": "Catalyst Center URL", "type": "text", "required": True,
          "placeholder": "https://10.0.0.1", "remember": True},
         {"name": "username", "label": "Username", "type": "text", "required": True, "width": "half", "remember": True},
         {"name": "password", "label": "Password", "type": "password", "required": True, "width": "half", "remember": True},
-        {"name": "csv_file", "label": "Device CSV", "type": "file", "accept": ".csv",
-         "template": "dnac_port_assignment_template.csv",
-         "help": "Columns: hostname, managementIpAddress. Leave empty to just dump all port assignments."},
+        {"name": "scope", "label": "Scope", "type": "select", "default": "inventory",
+         "options": [{"value": "inventory", "label": "Devices from Site Inventory"},
+                     {"value": "all", "label": "Dump all port assignments (no device list)"}]},
+        {"name": "inventory_list", "label": "Device list (Site Inventory)", "type": "select", "default": "All",
+         "width": "half", "source": {"type": "inventory_lists", "all_label": "All"}, "show_if": {"scope": "inventory"}},
+        {"name": "site", "label": "Site", "type": "select", "default": "All", "width": "half", "show_count": True,
+         "source": {"type": "inventory_sites", "field": "inventory_list", "all_label": "All"},
+         "show_if": {"scope": "inventory"}},
         {"name": "verify_ssl", "label": "Verify SSL certificate", "type": "checkbox", "default": False, "width": "half"},
     ],
     "columns": ["Stage", "Hostname", "Status", "Message", "Progress", "Output", "Timestamp"],
@@ -103,8 +108,7 @@ def run(ctx, params):
             emit("Auth", "DNAC", "Failed", "Authentication failed", 0)
             return
         emit("Auth", "DNAC", "Pass", "Authenticated", 5)
-        csv_path = params.get("csv_file")
-        if not csv_path:
+        if params.get("scope") == "all":
             ok, data = client.get("port_assignments_global", "/dna/intent/api/v1/sda/portAssignments")
             out = json.dumps(data, indent=2) if ok else str(data)
             emit("GET", "portAssignments", "Completed" if ok else "Failed", "Fetched assignments", 100, out)
@@ -114,15 +118,11 @@ def run(ctx, params):
                     f.write(out)
                 ctx.artifact("portAssignments.json", path)
             return
-        emit("Import", "CSV", "Running", "Loading CSV...", 10)
-        fields, rows = csvutil.read_csv(csv_path)
-        hcol = csvutil.find_col(fields, "hostname")
-        icol = csvutil.find_col(fields, "managementIpAddress", "ip_address", "ip")
-        if not hcol or not icol:
-            raise ValueError("Missing required column: hostname / managementIpAddress")
-        devices = [{"hostname": r.get(hcol, ""), "ip": r.get(icol, "")} for r in rows if r.get(icol)]
+        emit("Import", "Site Inventory", "Running", "Loading devices from Site Inventory...", 10)
+        devices = [{"hostname": d["hostname"] or d.get("description") or d["host"], "ip": d["host"]}
+                   for d in inventory.devices_for(ctx, params)]
         if not devices:
-            raise ValueError("CSV has no valid data rows")
+            raise ValueError("No devices selected from Site Inventory")
         ctx.progress(0, len(devices))
         results = []
         for idx, d in enumerate(devices, start=1):

@@ -3,7 +3,7 @@ import os
 import re
 from datetime import datetime
 
-from ..core import csvutil
+from ..core import inventory
 from ..core.logutil import safe_name
 from ..core.netutil import classify_error, connect, prepare
 from ..core.paths import load_settings
@@ -17,10 +17,7 @@ def ssh_timeout():
 
 
 def load_devices_or_fail(ctx, params):
-    devices = csvutil.load_devices(params.get("device_file"), params.get("site", "All"))
-    if not devices:
-        ctx.warn("No devices found for the selected site.")
-    return devices
+    return inventory.devices_for(ctx, params)
 
 
 def device_type_for(device, params):
