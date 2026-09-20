@@ -7,7 +7,9 @@ from app.core.jobs import JobManager
 
 
 def write(path, text, bom=False):
-    path.write_text(text, encoding="utf-8-sig" if bom else "utf-8", newline="")
+    # Path.write_text(newline=...) needs Python 3.10+, and we must keep "\r\n" exactly as given
+    with open(path, "w", encoding="utf-8-sig" if bom else "utf-8", newline="") as f:
+        f.write(text)
     return str(path)
 
 
