@@ -20,20 +20,39 @@ Web Application (Python FastAPI + HTML/JS ไม่ต้อง build) ใช้
 
 ## วิธีใช้
 
-1. เลือกเครื่องมือจากเมนูซ้าย
-2. Upload ไฟล์ CSV รายการอุปกรณ์ (กด **⬇ Template** ข้างช่อง upload เพื่อโหลดตัวอย่าง)
-3. ใส่ Username / Password เลือก Site, Device type, Max threads
+1. เปิดเมนู **📋 Site Inventory** (บนสุดของเมนูซ้าย) แล้ว **Import** ไฟล์รายการอุปกรณ์ (CSV / XLSX) ครั้งเดียว
+   – ข้อมูลถูกเก็บถาวรที่ `data/site_inventory.json` ไม่ต้อง browse ไฟล์ซ้ำทุกครั้ง
+2. เลือกเครื่องมือจากเมนูซ้าย แล้วเลือก **Device list** และ **Site** จาก Site Inventory (ระบบแสดงจำนวนอุปกรณ์ที่เลือก)
+3. ใส่ Username / Password เลือก Device type, Max threads
 4. กด **Run** – ผลลัพธ์แสดงสดในตาราง กด **View** ดู output เต็ม, **Stop** หยุด, **Export CSV** ส่งออก
 5. ติ๊ก **Remember credentials** ที่มุมซ้ายล่าง ถ้าต้องการให้จำ user/password ไว้ใน browser เครื่องนี้
 6. ค่า default (username, community ฯลฯ) ตั้งได้ใน `settings.json`
 
 Log ของทุกการ run อยู่ที่ `logs/<tool>/<วันเวลา>/` เหมือน v1.1, ไฟล์ export อยู่ที่ `exports/`
 
+## Site Inventory
+
+| ความสามารถ | รายละเอียด |
+|------------|------------|
+| Import | CSV / XLSX ต้องมีคอลัมน์ IP (`IP_Address` / `ip_mgmt` / `ip` / `managementIpAddress`) คอลัมน์อื่นที่รู้จัก: `Site` หรือ `zone`, `Hostname`, `Device_Type`, `Model`, `Brand`, `Description` – คอลัมน์อื่น ๆ (เช่น `command`) ถูกเก็บไว้ด้วย |
+| List name | แต่ละไฟล์ที่ import เป็นหนึ่ง **list** (ค่าเริ่มต้น = ชื่อไฟล์) ใช้แทนการ "เลือกไฟล์" แบบเดิม |
+| Import mode | **Merge** = เพิ่มใหม่ + update IP ที่ซ้ำใน list เดิม, **Replace** = ให้ list เหลือเท่ากับไฟล์นี้ |
+| จัดการ | ค้นหา / กรองตาม list และ site, เพิ่ม-แก้ไข-ลบอุปกรณ์ทีละตัว, ลบทั้ง list, Export CSV |
+| ประวัติ | เก็บประวัติการ import (ไฟล์, เวลา, added / updated / skipped / removed) |
+
+เครื่องมือที่ดึงอุปกรณ์จาก Site Inventory: Config Devices, IOS Upgrade, Client Status Checker, Get / CDP / LLDP / SNMP
+Inventory, Verify SNMP User, DNAC Port Assignment เมื่อเลือก list = All ระบบจะตัด IP ที่ซ้ำกันข้าม list ให้อัตโนมัติ
+
+ไฟล์ที่ **ไม่ใช่รายการอุปกรณ์** ยังคง upload ในหน้าเครื่องมือเหมือนเดิม: URL list (DNAC REST API), site list (SD-WAN API),
+capture list (Capture DNAC) และ log files (Interface Report / Security Health Check)
+
+> `data/` มี IP ของลูกค้า จึงอยู่ใน `.gitignore` – ถ้า copy โฟลเดอร์ไปเครื่องอื่นให้ copy `data/` ไปด้วยเพื่อพก inventory ไป
+
 ## เครื่องมือที่มี
 
 | Tool | v1.1 module | หมายเหตุ |
 |------|-------------|----------|
-| Config Devices | config_devices + config_devices_v2 | Verify/Config mode, คอลัมน์ผลลัพธ์ต่อคำสั่ง, Generate Report (ต้องติดตั้ง ydata-profiling) |
+| Config Devices | config_devices + config_devices_v2 | Verify/Config mode, คอลัมน์ผลลัพธ์ต่อคำสั่ง, ใช้คอลัมน์ `command` ต่ออุปกรณ์จาก Site Inventory ได้, Generate Report (ต้องติดตั้ง ydata-profiling) |
 | IOS Upgrade | upgrade_ios | 6 stage, FTP server ต้องเปิดเอง, ตรวจ MD5, install/reload |
 | Client Status Checker | client_status_checker | หา MAC ใน mac table / ARP |
 | Get Inventory | get_inventory | show version / show inventory |
@@ -50,9 +69,10 @@ Log ของทุกการ run อยู่ที่ `logs/<tool>/<วั�
 
 ## ความแตกต่างจาก v1.1 ที่ควรรู้
 
-* **ไฟล์** – CSV ถูก upload ผ่าน browser ไปเก็บใน `uploads/`; ช่องที่ต้องการ path ในเครื่อง
+* **รายการอุปกรณ์** – import ครั้งเดียวที่เมนู Site Inventory แล้วทุกเครื่องมือเลือกจาก list / site (ไม่ต้อง browse CSV ทุกครั้ง)
+* **ไฟล์อื่น ๆ** – upload ผ่าน browser ไปเก็บใน `uploads/`; ช่องที่ต้องการ path ในเครื่อง
   (IOS image, log folder, template) พิมพ์ path ได้เลยหรือกด **Browse…** (เปิด dialog ของ Windows บนเครื่องที่ run server)
-* **Device type** – เลือกได้ในฟอร์ม (default `autodetect`) และคอลัมน์ `Device_Type` ใน CSV จะ override
+* **Device type** – เลือกได้ในฟอร์ม (default `autodetect`) และค่า `Device_Type` ที่เก็บใน Site Inventory จะ override
 * **รหัสผ่านที่เคย hardcode** (`sdaadmin` ฯลฯ) ถูกเอาออก – ใส่เองหรือตั้งใน `settings.json` / ติ๊ก Remember credentials
 * **SSL** – เครื่องมือ DNAC / vManage มีช่อง *Verify SSL certificate* (ปิดไว้เป็นค่าเริ่มต้น เพราะส่วนใหญ่เป็น self-signed)
 * แต่ละ stage ของ IOS Upgrade เป็นคนละ job – ดู job เก่าได้จาก dropdown **Previous runs…**
@@ -65,11 +85,12 @@ Onsite_Tools_v2/
 ├── requirements.txt
 ├── settings.json                    port, ค่า default ต่าง ๆ
 ├── templates/                       CSV template ทุกเครื่องมือ + shc_template.csv
+├── data/site_inventory.json         Site Inventory (สร้างอัตโนมัติ, ไม่เข้า git)
 ├── static/                          index.html, app.js, style.css  (frontend)
 └── app/
     ├── __main__.py                  python -m app
     ├── main.py                      FastAPI routes
-    ├── core/                        jobs (thread pool + live results), csv, netmiko, paths, logging
+    ├── core/                        jobs (thread pool + live results), inventory, csv, netmiko, paths, logging
     └── tools/                       หนึ่งไฟล์ต่อหนึ่งเครื่องมือ (TOOL dict + run(ctx, params))
 ```
 
@@ -94,6 +115,6 @@ Onsite_Tools_v2/
 .venv\Scripts\python -m pytest tests -q
 ```
 
-Tests ครอบคลุม tool registry, parser ของทุกเครื่องมือ (CDP/LLDP/inventory/SNMP/interface/health check),
+Tests ครอบคลุม tool registry, Site Inventory (import / merge / replace / API), parser ของทุกเครื่องมือ (CDP/LLDP/inventory/SNMP/interface/health check),
 CSV loader, job runner (progress / error / stop) และ REST API ผ่าน FastAPI TestClient – ไม่ต้องมีอุปกรณ์จริง
 GitHub Actions (`.github/workflows/python-package.yml`) run ชุดนี้บน Python 3.9 / 3.10 / 3.11

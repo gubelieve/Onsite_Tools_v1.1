@@ -7,3 +7,4 @@ exports/
 screenshots/
 *.log
 .pytest_cache/
+data/

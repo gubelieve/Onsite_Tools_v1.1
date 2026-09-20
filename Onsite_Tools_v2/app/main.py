@@ -7,12 +7,12 @@ import threading
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
-from .core import csvutil
+from .core import csvutil, inventory
 from .core.jobs import manager
 from .core.netutil import DEVICE_TYPES
 from .core.paths import (BASE_DIR, EXPORTS_DIR, STATIC_DIR, TEMPLATES_DIR, UPLOADS_DIR, ensure_dirs,
@@ -39,6 +39,7 @@ def meta():
         "settings": public_settings(),
         "device_types": DEVICE_TYPES,
         "load_errors": load_errors(),
+        "inventory": inventory.store.summary(),
         "hostname": socket.gethostname(),
     }
 
@@ -122,6 +123,88 @@ def _detect_local_ip():
             return socket.gethostbyname(socket.gethostname())
         except Exception:
             return "192.168.1.100"
+
+
+# --------------------------------------------------------------- site inventory
+@app.get("/api/inventory")
+def inventory_summary():
+    return dict(inventory.store.summary(), imports=inventory.store.imports()[:30])
+
+
+@app.get("/api/inventory/lists")
+def inventory_lists():
+    return [x["name"] for x in inventory.store.lists()]
+
+
+@app.get("/api/inventory/sites")
+def inventory_sites(list: Optional[str] = None):
+    return {"sites": inventory.store.sites(list), "count": len(inventory.store.get_devices(list))}
+
+
+@app.get("/api/inventory/count")
+def inventory_count(list: Optional[str] = None, site: Optional[str] = None):
+    return {"count": len(inventory.store.get_devices(list, site))}
+
+
+@app.get("/api/inventory/devices")
+def inventory_devices(list: Optional[str] = None, site: Optional[str] = None, q: Optional[str] = None,
+                      limit: int = 500, offset: int = 0):
+    devs = inventory.store.devices(list, site, q)
+    return {"total": len(devs), "devices": devs[offset: offset + max(1, min(limit, 5000))]}
+
+
+@app.post("/api/inventory/import")
+async def inventory_import(file: UploadFile = File(...), list_name: str = Form(""), mode: str = Form("merge"),
+                           default_site: str = Form("")):
+    if mode not in ("merge", "replace"):
+        raise HTTPException(400, "mode must be 'merge' or 'replace'")
+    data = await file.read()
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(UPLOADS_DIR, f"{stamp}_inv_{_safe_filename(file.filename)}")
+    with open(path, "wb") as f:
+        f.write(data)
+    try:
+        fields, rows = csvutil.read_csv(path)
+        return inventory.store.import_rows(fields, rows, list_name, os.path.basename(file.filename or "import.csv"),
+                                           mode, default_site)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/inventory/devices")
+async def inventory_upsert(request: Request):
+    try:
+        return inventory.store.upsert_device(await request.json())
+    except KeyError:
+        raise HTTPException(404, "device not found")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/inventory/devices/{device_id}")
+def inventory_delete_device(device_id: str):
+    if not inventory.store.delete_device(device_id):
+        raise HTTPException(404, "device not found")
+    return {"ok": True}
+
+
+@app.delete("/api/inventory/lists/{list_name}")
+def inventory_delete_list(list_name: str):
+    return {"removed": inventory.store.delete_list(list_name)}
+
+
+@app.get("/api/inventory/export.csv")
+def inventory_export(list: Optional[str] = None, site: Optional[str] = None):
+    import csv
+
+    cols, rows = inventory.store.export_rows(list, site)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
+    w.writeheader()
+    w.writerows(rows)
+    name = f"site_inventory_{_safe_filename(list or 'all')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return StreamingResponse(io.BytesIO(("\ufeff" + buf.getvalue()).encode("utf-8")), media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 # Native file/folder picker (works when the browser runs on the same machine as the server)
