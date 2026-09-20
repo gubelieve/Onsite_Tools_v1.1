@@ -32,7 +32,7 @@ export function parseCdp(output: string, hostname: string, site: string): Rec[] 
       "Interface": pick(/Interface: ([^,\n]+)/),
       "Port ID": pick(/Port ID \(outgoing port\): ([^\n]+)/),
       "Version": pick(/Product Version: (\S+)/) || pick(/Version[ :]+([^,\n]+)/),
-      "Site": site,
+      "Device Category": site,
       "raw_output": block.trim(),
     })
   }
@@ -46,7 +46,7 @@ export function parseLldp(output: string, hostname: string, site: string): Rec[]
   const rows: Rec[] = []
   for (const block of output.split(/-{3,}\r?\n/)) {
     if (!block.trim() || (!block.includes("Chassis id") && !block.includes("Local Intf"))) continue
-    const r: Rec = { "Device Switch": hostname, "Site": site, "raw_output": block.trim() }
+    const r: Rec = { "Device Switch": hostname, "Device Category": site, "raw_output": block.trim() }
     for (const f of LLDP_FIELDS) {
       r[f] = new RegExp(f.replace(/[/]/g, "\\/") + ": ([^\\n]+)").exec(block)?.[1]?.trim() ?? ""
     }
