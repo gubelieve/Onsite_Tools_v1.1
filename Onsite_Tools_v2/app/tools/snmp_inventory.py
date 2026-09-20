@@ -2,8 +2,9 @@
 import asyncio
 import re
 
-from ..core import csvutil
+from ..core import inventory
 from ..core.paths import load_settings
+from . import INVENTORY_FIELDS
 
 _settings = load_settings()
 
@@ -13,11 +14,7 @@ TOOL = {
     "category": "Inventory",
     "order": 33,
     "description": "Query hostname, version, serial number and PID via SNMP (no SSH needed).",
-    "fields": [
-        {"name": "device_file", "label": "Device list (CSV)", "type": "file", "accept": ".csv,.xlsx", "required": True,
-         "template": "device_list_template.csv", "help": "Columns: Site, IP_Address"},
-        {"name": "site", "label": "Site", "type": "select", "default": "All",
-         "source": {"type": "csv_column", "field": "device_file", "column": "Site", "all_label": "All"}},
+    "fields": INVENTORY_FIELDS + [
         {"name": "version", "label": "SNMP version", "type": "select", "options": ["2c", "3"], "default": "2c",
          "width": "half"},
         {"name": "community", "label": "Community (v2c)", "type": "password", "width": "half",
@@ -119,9 +116,8 @@ async def _query(ip, params, timeout):
 
 
 def run(ctx, params):
-    devices = csvutil.load_devices(params.get("device_file"), params.get("site", "All"))
+    devices = inventory.devices_for(ctx, params)
     if not devices:
-        ctx.warn("No devices found for the selected site.")
         return
     if params.get("version") == "3" and not params.get("user"):
         ctx.error("Please enter the SNMPv3 user name.")
