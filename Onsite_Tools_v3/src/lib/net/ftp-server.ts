@@ -21,6 +21,10 @@ export class SingleFileFtpServer {
   readonly size: number
   /** Progress per client IP - read by the upgrade job to show live upload progress. */
   readonly transfers = new Map<string, Transfer>()
+  /** Every client that opened a control connection, and every client that got past the password.
+   *  A failed copy with an empty `clients` set means nothing reached this PC at all - firewall or routing. */
+  readonly clients = new Set<string>()
+  readonly authenticated = new Set<string>()
   port = 0
   private server?: net.Server
   private sockets = new Set<net.Socket>()
@@ -53,6 +57,7 @@ export class SingleFileFtpServer {
   private session(ctrl: net.Socket) {
     this.sockets.add(ctrl)
     const client = v4(ctrl.remoteAddress)
+    this.clients.add(client)
     let user = "", authed = false, offset = 0, buffer = ""
     let passive: net.Server | null = null
     let pending: Promise<net.Socket> | null = null
@@ -99,6 +104,7 @@ export class SingleFileFtpServer {
       if (cmd === "USER") { user = arg; return reply("331 Password required") }
       if (cmd === "PASS") {
         authed = user === this.user && arg === this.password
+        if (authed) this.authenticated.add(client)
         return reply(authed ? "230 Logged in" : "530 Login incorrect")
       }
       if (cmd === "QUIT") { reply("221 Goodbye"); ctrl.end(); return }
