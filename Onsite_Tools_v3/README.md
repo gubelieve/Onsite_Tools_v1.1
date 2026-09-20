@@ -73,6 +73,22 @@ Device type `autodetect` ลองคำสั่งปิด paging ของ C
 | **SCP push** | ไม่มีอะไร listen บนเครื่องนี้ – App ต่อ SSH เข้าไปส่งไฟล์เอง | ถ้าอุปกรณ์ยังไม่มี `ip scp server enable` App จะใส่ให้ (ไม่ได้ `write memory`), user ต้องเป็น privilege 15, SCP ของ IOS ช้ากว่า FTP |
 | External FTP server | FTP server ที่เปิดไว้อยู่แล้ว (FileZilla, IIS) | พฤติกรรมเดิม |
 
+> **Windows Firewall:** built-in FTP ต้องให้อุปกรณ์ "ต่อเข้ามา" ที่เครื่องนี้ ถ้าเคยกด Cancel ตอน Windows ถาม
+> Windows จะสร้าง rule **Block ขาเข้า** ของ `node.exe` ค้างไว้ และ copy จะล้มเหลวทุกครั้ง (Block ชนะ Allow เสมอ
+> การเพิ่ม rule Allow ทับไม่ช่วย ต้องลบ rule Block ทิ้ง) เครื่องมือจะตรวจให้และบอกชื่อ rule ในข้อความ error
+> วิธีแก้ – เปิด PowerShell แบบ Run as administrator:
+>
+> ```powershell
+> Get-NetFirewallRule -DisplayName 'Node.js JavaScript Runtime' |
+>   Where-Object { $_.Direction -eq 'Inbound' -and $_.Action -eq 'Block' } | Remove-NetFirewallRule
+> New-NetFirewallRule -DisplayName 'Onsite Tools FTP' -Direction Inbound -Action Allow `
+>   -Program 'C:\Program Files
+odejs
+ode.exe'
+> ```
+>
+> ถ้าไม่มีสิทธิ์ admin ให้ใช้ **SCP push** แทน – ไม่ต้องเปิดอะไรรอที่เครื่องนี้เลย
+
 ช่อง **IOS image file** กด **Browse file** เพื่อเปิดหน้าต่างเลือกไฟล์ของ Windows – ได้ path เต็มโดยไม่มีการ copy / upload ไฟล์
 (ใช้ได้เฉพาะ browser บนเครื่องที่ run App; ถ้าเข้าผ่าน `--lan` ให้วาง path เอง) ช่อง Log folder ก็มีปุ่ม Browse folder เช่นกัน
 

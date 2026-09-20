@@ -8,6 +8,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { JobContext } from "../jobs"
 import type { ToolDevice } from "../inventory"
+import { noInboundHint } from "../net/firewall"
 import { SingleFileFtpServer } from "../net/ftp-server"
 import { scpPush } from "../net/scp"
 import { SshSession } from "../net/ssh"
@@ -31,6 +32,28 @@ export const baseName = (file: string) => file.split(/[\\/]/).pop() ?? file
 
 /** Cisco "copy" refuses some characters in the destination name. */
 export const flashName = (file: string) => baseName(file).replace(/[_ ]/g, "-")
+
+/**
+ * Turn a failed "copy ftp://..." into something the user can act on: what the device said, plus which half of the
+ * FTP conversation never happened. An empty `clients` set is the common one - nothing reached this PC at all.
+ */
+export async function explainFtpFailure(ftp: SingleFileFtpServer, out: string, deviceHost: string, ftpIp: string): Promise<string> {
+  const spoke = /^\s*(%\s*Error[^\n]*|%\s*Warning[^\n]*)/im.exec(out)?.[1]?.trim()
+  const said = spoke ? `The device reported "${spoke}". ` : ""
+  const me = deviceHost.split(":")[0]
+  const where = `${ftpIp}:${ftp.port}`
+  if (ftp.clients.size === 0) return said + (await noInboundHint(ftpIp, ftp.port))
+  if (ftp.authenticated.size === 0) {
+    return said + `The device reached ${where} but did not log in. A device-side "ip ftp username / password" overrides the ` +
+      "credentials in the copy command - remove it, or use an external FTP server that accepts those credentials."
+  }
+  if (!ftp.clients.has(me)) {
+    return said + `A connection arrived from ${[...ftp.clients].join(", ")} rather than ${me}. If the device uses ` +
+      '"ip ftp source-interface", that address has to be able to reach this PC too.'
+  }
+  return said + `The device logged in to ${where}, so it is the data connection that failed. Passive FTP opens a second port: ` +
+    'allow this app through the Windows firewall for all ports, or use "SCP push", which needs no inbound connection.'
+}
 
 /** One stage for one device. Exported for the end-to-end test against the fake device. */
 export class Stage {
@@ -170,8 +193,11 @@ export class Stage {
     out = out.split(ftp.password).join("****")
     this.logCmd(shown, out)
     const copied = /(\d+) bytes copied/.exec(out)
-    if (copied || /\[OK/.test(out)) this.emit("Completed", `IOS uploaded via built-in FTP (${Number(copied?.[1] ?? size).toLocaleString()} bytes)`, String(copied?.[1] ?? size), out)
-    else this.emit("Failed", `FTP copy failed - can the device reach ${this.ftpIp}:${ftp.port}? Check the Windows firewall prompt for Node.js.`, "0", out)
+    if (copied || /\[OK/.test(out)) {
+      this.emit("Completed", `IOS uploaded via built-in FTP (${Number(copied?.[1] ?? size).toLocaleString()} bytes)`, String(copied?.[1] ?? size), out)
+      return
+    }
+    this.emit("Failed", `FTP copy failed: ${await explainFtpFailure(ftp, out, this.device.host, this.ftpIp)}`, "0", out)
   }
 
   /** SCP push: the PC connects to the device, so nothing has to listen on the PC. */
@@ -275,7 +301,7 @@ export const upgradeIos: ToolDef = {
         { value: "ftp-external", label: "External FTP server - already running (FileZilla, IIS, ...)" }],
       help: "Built-in FTP listens on port 21 only while Stage 1 runs, with a one-time password, and serves only the selected image. Allow Node.js in the Windows firewall prompt the first time." },
     { name: "ftpIp", label: "FTP server IP (this PC)", type: "text", width: "half", defaultFrom: "localIp",
-      showIf: { transferMethod: "ftp-builtin" }, help: "Address of this PC as seen by the devices. Auto-detected; edit if needed." },
+      showIf: { transferMethod: "ftp-builtin" }, help: "Address of this PC as seen by the devices. Auto-detected from the default route; edit it if the devices reach this PC on another interface." },
     { name: "ftpIpExternal", label: "External FTP server IP", type: "text", width: "half", defaultFrom: "localIp",
       showIf: { transferMethod: "ftp-external" }, help: "Anonymous FTP, or configure 'ip ftp username / password' on the devices." },
     { name: "threads", label: "Max parallel sessions", type: "number", default: 3, min: 1, max: 10, width: "half" },
