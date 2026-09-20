@@ -1,0 +1,11 @@
+{
+  "host": "127.0.0.1",
+  "port": 8088,
+  "open_browser": true,
+  "default_username": "",
+  "default_password": "",
+  "default_device_type": "autodetect",
+  "default_threads": 10,
+  "snmp_community": "",
+  "ssh_timeout": 20
+}

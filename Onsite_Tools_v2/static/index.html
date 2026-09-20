@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Onsite Tools v2</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9B%A0%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand">
+      <div class="brand-title">Onsite Tools <span id="version"></span></div>
+      <div class="brand-sub" id="hostname"></div>
+    </div>
+    <input id="tool-filter" type="search" placeholder="Filter tools…" autocomplete="off">
+    <nav id="tool-list"></nav>
+    <div class="sidebar-footer">
+      <label class="chk"><input type="checkbox" id="remember-creds"> Remember credentials</label>
+      <button id="theme-toggle" class="btn btn-sm">Dark mode</button>
+      <a class="btn btn-sm" href="#" id="templates-link">Templates</a>
+    </div>
+  </aside>
+  <main id="main">
+    <div id="welcome" class="panel">
+      <h1>Welcome</h1>
+      <p>Select a tool from the left. Upload a device list CSV, enter credentials, and press <b>Run</b>.
+         Results appear live in the table; you can <b>View</b> any output, <b>Stop</b> a run, and <b>Export CSV</b>.</p>
+      <p class="muted">Logs are written under <code id="logs-dir"></code>. Exports under <code id="exports-dir"></code>.</p>
+      <div id="load-errors"></div>
+    </div>
+    <div id="tool-panel" class="panel" hidden></div>
+  </main>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div id="modal-title" class="modal-title"></div>
+      <div class="modal-actions">
+        <button class="btn btn-sm" id="modal-copy">Copy</button>
+        <button class="btn btn-sm" id="modal-close">Close</button>
+      </div>
+    </div>
+    <pre id="modal-body"></pre>
+  </div>
+</div>
+
+<div id="confirm" class="modal" hidden>
+  <div class="modal-box small">
+    <div class="modal-head"><div id="confirm-title" class="modal-title">Confirm</div></div>
+    <pre id="confirm-body" class="wrap"></pre>
+    <div class="modal-foot">
+      <button class="btn" id="confirm-no">Cancel</button>
+      <button class="btn btn-danger" id="confirm-yes">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

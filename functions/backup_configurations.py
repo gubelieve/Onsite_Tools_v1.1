@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QLineEdit, QComboBox, QTableWidget,
                              QTableWidgetItem, QFileDialog, QMessageBox,
                              QHeaderView, QProgressBar, QCheckBox, QGroupBox,
-                             QScrollArea, QFormLayout, QDialog)
+                             QScrollArea, QFormLayout, QDialog, QTextEdit)
 from PySide6.QtCore import Qt, QThread, Signal
 import shutil
 from datetime import datetime
@@ -41,6 +41,59 @@ class CommandDialog(QDialog):
         buttons.addWidget(save_button)
         buttons.addWidget(cancel_button)
         layout.addRow(buttons)
+
+class OutputDialog(QDialog):
+    def __init__(self, site, command, output, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Command Output - {site}")
+        self.setMinimumSize(600, 400)
+        self.setup_ui(site, command, output)
+        
+    def setup_ui(self, site, command, output):
+        layout = QVBoxLayout(self)
+        
+        # Header information
+        header_layout = QHBoxLayout()
+        site_label = QLabel(f"Site: {site}")
+        site_label.setStyleSheet("font-weight: bold;")
+        command_label = QLabel(f"Command: {command}")
+        command_label.setStyleSheet("font-weight: bold;")
+        header_layout.addWidget(site_label)
+        header_layout.addWidget(command_label)
+        layout.addLayout(header_layout)
+        
+        # Output text area
+        self.output_text = QTextEdit()
+        self.output_text.setReadOnly(True)
+        self.output_text.setPlainText(output)
+        self.output_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                padding: 8px;
+                font-family: 'Courier New', monospace;
+            }
+        """)
+        layout.addWidget(self.output_text)
+        
+        # Close button
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.accept)
+        close_button.setStyleSheet("""
+            QPushButton {
+                padding: 8px 15px;
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        layout.addWidget(close_button, alignment=Qt.AlignRight)
 
 class BackupWorker(QThread):
     status_update = Signal(str, str, str, str)  # site, command, status, output
@@ -171,10 +224,12 @@ class BackupConfigurations(QWidget):
         cred_layout = QHBoxLayout()
         cred_layout.addWidget(QLabel("Username:"))
         self.username_input = QLineEdit()
+        self.username_input.setText("sdaadmin")  # Set default username
         cred_layout.addWidget(self.username_input)
         cred_layout.addWidget(QLabel("Password:"))
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_input.setText("C!sc0123")  # Set default password
         cred_layout.addWidget(self.password_input)
         layout.addLayout(cred_layout)
         
@@ -466,7 +521,32 @@ class BackupConfigurations(QWidget):
             status_item.setForeground(Qt.red)
         self.results_table.setItem(row, 2, status_item)
         
-        self.results_table.setItem(row, 3, QTableWidgetItem(output))
+        # Create a button to show output
+        output_button = QPushButton("View Output")
+        output_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                padding: 5px 10px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        output_button.clicked.connect(lambda: self.show_output_dialog(site, command, output))
+        
+        # Create a widget to hold the button
+        button_widget = QWidget()
+        button_layout = QHBoxLayout(button_widget)
+        button_layout.addWidget(output_button)
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.results_table.setCellWidget(row, 3, button_widget)
+    
+    def show_output_dialog(self, site, command, output):
+        dialog = OutputDialog(site, command, output, self)
+        dialog.exec_()
     
     def show_error(self, error_message):
         QMessageBox.warning(self, "Error", error_message)
