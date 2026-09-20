@@ -6,3 +6,4 @@ uploads/
 exports/
 screenshots/
 *.log
+.pytest_cache/
