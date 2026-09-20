@@ -1,4 +1,0 @@
-Site,IP_Address,command
-SiteA,192.168.1.1,"show version
-show ip interface brief"
-SiteB,192.168.1.2,show running-config

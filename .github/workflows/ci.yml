@@ -1,7 +1,9 @@
-# Lint the repository and run the Onsite_Tools_v2 test-suite on several Python versions.
-# The v1.1 desktop app (PySide6) has no automated tests; it is only linted for syntax errors.
+# CI for both editions kept in this repository:
+#   * Onsite_Tools_v3 - the Next.js / TypeScript web app (lint, typecheck, tests, build)
+#   * the v1.1 PySide6 desktop app at the repository root - no automated tests, only a syntax gate
+# The Python v2 web edition was removed in favour of v3.
 
-name: Python package
+name: CI
 
 on:
   push:
@@ -10,39 +12,25 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
-
+  desktop-v1:
+    name: Lint the v1.1 desktop app
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.10", "3.11"]
-
     steps:
     - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+    - uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
-        cache: pip
-        cache-dependency-path: Onsite_Tools_v2/requirements-dev.txt
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        # Test dependencies only - device libraries (netmiko, pysnmp, selenium, pandas) are imported lazily
-        python -m pip install -r Onsite_Tools_v2/requirements-dev.txt
+        python-version: "3.11"
+    - name: Install flake8
+      run: python -m pip install --upgrade pip flake8
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    - name: Test with pytest
-      run: |
-        pytest Onsite_Tools_v2/tests -q
 
-  # Onsite_Tools_v3 - Next.js / TypeScript edition (no Python)
   web-v3:
+    name: Onsite_Tools_v3
     runs-on: ubuntu-latest
     defaults:
       run:
