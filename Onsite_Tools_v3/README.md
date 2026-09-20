@@ -115,7 +115,10 @@ src/
 ที่ `src/lib/tools/index.ts` – เมนู, หน้าเว็บ, ฟอร์ม และ API ถูกสร้างให้อัตโนมัติ ใน `run` ใช้ `ctx.addRow / updateRow /
 mapParallel / info / warn / error / artifact / checkStop` (ดู `getInventory` ใน `ssh-tools.ts` เป็นตัวอย่าง)
 
-## ต่างจาก v2 (Python)
+## ต่างจาก v2 (Python edition ที่ถูกแทนที่)
+
+v2 เป็น web app รุ่นก่อนหน้าที่เขียนด้วย Python (FastAPI) – ถูกลบออกจาก repo แล้ว เพราะ v3 ทำงานแทนได้ทั้งหมด
+(ถ้ายังต้องการโค้ดเดิม ดูได้จาก git history ก่อน commit ที่ลบ หรือโฟลเดอร์สำเนาในเครื่อง)
 
 * ไม่มี Python / venv – ใช้ Node.js อย่างเดียว
 * ข้อมูลอยู่ใน SQLite แทนไฟล์ JSON, Run History อยู่ถาวร
