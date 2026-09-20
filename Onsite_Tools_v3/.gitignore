@@ -13,3 +13,6 @@ npm-debug.log*
 /uploads/
 /exports/
 /screenshots/
+
+# The repository root .gitignore (Python template) ignores every "lib/" folder - this one is source code.
+!/src/lib/
