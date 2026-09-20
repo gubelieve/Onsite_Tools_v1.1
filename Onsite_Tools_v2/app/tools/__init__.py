@@ -18,19 +18,23 @@ from ..core.paths import load_settings
 
 _settings = load_settings()
 
-COMMON_DEVICE_FIELDS = [
-    {"name": "device_file", "label": "Device list (CSV)", "type": "file", "accept": ".csv,.xlsx",
-     "required": True, "template": "device_list_template.csv",
-     "help": "Columns: Site, IP_Address [, Device_Type, Description]"},
-    {"name": "site", "label": "Site", "type": "select", "default": "All",
-     "source": {"type": "csv_column", "field": "device_file", "column": "Site", "all_label": "All"}},
+# Devices come from the Site Inventory menu (app/core/inventory.py) - tools never upload device CSVs.
+INVENTORY_FIELDS = [
+    {"name": "inventory_list", "label": "Device list (Site Inventory)", "type": "select", "default": "All",
+     "width": "half", "source": {"type": "inventory_lists", "all_label": "All"},
+     "help": "Lists are imported in the Site Inventory menu."},
+    {"name": "site", "label": "Site", "type": "select", "default": "All", "width": "half",
+     "source": {"type": "inventory_sites", "field": "inventory_list", "all_label": "All"}, "show_count": True},
+]
+
+COMMON_DEVICE_FIELDS = INVENTORY_FIELDS + [
     {"name": "username", "label": "Username", "type": "text", "required": True, "width": "half",
      "default": _settings.get("default_username", ""), "remember": True},
     {"name": "password", "label": "Password", "type": "password", "required": True, "width": "half",
      "default": _settings.get("default_password", ""), "remember": True},
     {"name": "device_type", "label": "Device type", "type": "select", "width": "half",
      "default": _settings.get("default_device_type", "autodetect"), "options": "device_types",
-     "help": "autodetect = let netmiko guess. A Device_Type column in the CSV overrides this."},
+     "help": "autodetect = let netmiko guess. A Device_Type stored in Site Inventory overrides this."},
     {"name": "threads", "label": "Max threads", "type": "number", "min": 1, "max": 100, "width": "half",
      "default": _settings.get("default_threads", 10)},
 ]

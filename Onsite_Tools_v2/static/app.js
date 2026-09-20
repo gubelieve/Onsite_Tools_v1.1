@@ -83,6 +83,9 @@
   function renderSidebar(filter) {
     const nav = $("#tool-list");
     nav.innerHTML = "";
+    const inv = (state.meta && state.meta.inventory) || { total: 0, lists: [] };
+    nav.append(el("a", { class: "tool-item" + (state.page === "inventory" ? " active" : ""), href: "#site_inventory" },
+      "📋 Site Inventory", el("span", { class: "desc" }, `${inv.total} device(s) in ${inv.lists.length} list(s) – import & manage device lists`)));
     const f = (filter || "").toLowerCase();
     const cats = {};
     for (const t of state.tools) {
@@ -175,29 +178,44 @@
       api_ = { get: () => inp.checked, set: (v) => (inp.checked = !!v) };
     } else if (f.type === "select") {
       const sel = el("select");
+      const allLabel = (f.source && f.source.all_label) || "All";
+      const countEl = f.show_count ? el("div", { class: "help" }) : null;
+      const refreshDependents = () => { for (const other of state.tool.fields) if (other.source && other.source.field === f.name) state.fieldEls[other.name].refresh(); };
+      const updateCount = async () => {
+        if (!countEl) return;
+        const src = state.fieldEls[f.source.field];
+        try {
+          const r = await api(`/api/inventory/count?list=${encodeURIComponent(src ? src.get() : "")}&site=${encodeURIComponent(sel.value)}`);
+          countEl.innerHTML = r.count ? `<b>${r.count}</b> device(s) selected` : `<span class="cell-bad">0 devices</span> – import a list in <a href="#site_inventory">Site Inventory</a>`;
+        } catch (e) { countEl.textContent = ""; }
+      };
       const fill = (opts) => {
         const cur = sel.value || val;
         sel.innerHTML = "";
         for (const o of opts) sel.append(el("option", { value: o.value }, o.label));
         if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
       };
-      if (f.source && f.source.type === "csv_column") {
-        fill([{ value: f.source.all_label || "All", label: f.source.all_label || "All" }]);
-      } else fill(optionList(f.options));
-      sel.addEventListener("change", onchange);
+      if (f.source) fill([{ value: allLabel, label: allLabel }]);
+      else fill(optionList(f.options));
+      sel.addEventListener("change", () => { onchange(); refreshDependents(); updateCount(); });
       wrap.append(sel);
+      if (countEl) wrap.append(countEl);
       api_ = {
         get: () => sel.value, set: (v) => (sel.value = v),
         refresh: async () => {
-          if (!f.source || f.source.type !== "csv_column") return;
+          if (!f.source) return;
           const src = state.fieldEls[f.source.field];
-          const path = src && src.get();
-          const all = f.source.all_label || "All";
-          if (!path) return fill([{ value: all, label: all }]);
+          let vals = [];
           try {
-            const vals = await api(`/api/csv/values?path=${encodeURIComponent(path)}&column=${encodeURIComponent(f.source.column)}`);
-            fill([{ value: all, label: all }, ...vals.map((v) => ({ value: v, label: v }))]);
-          } catch (e) { toast("Could not read sites: " + e.message, "warning"); }
+            if (f.source.type === "csv_column") {
+              const path = src && src.get();
+              if (path) vals = await api(`/api/csv/values?path=${encodeURIComponent(path)}&column=${encodeURIComponent(f.source.column)}`);
+            } else if (f.source.type === "inventory_lists") vals = await api("/api/inventory/lists");
+            else if (f.source.type === "inventory_sites") vals = (await api(`/api/inventory/sites?list=${encodeURIComponent(src ? src.get() : "")}`)).sites;
+            fill([{ value: allLabel, label: allLabel }, ...vals.map((v) => ({ value: v, label: v }))]);
+          } catch (e) { toast("Could not load options: " + e.message, "warning"); }
+          refreshDependents();
+          updateCount();
         },
       };
     } else if (f.type === "file" || f.type === "files") {
@@ -311,7 +329,7 @@
   // ---------------------------------------------------------------- tool panel
   function renderTool(tool) {
     stopPolling();
-    state.tool = tool; state.jobId = null; state.fieldEls = {}; state.lastVersion = -1;
+    state.tool = tool; state.page = "tool"; state.jobId = null; state.fieldEls = {}; state.lastVersion = -1;
     renderSidebar($("#tool-filter").value);
     $("#welcome").hidden = true;
     const panel = $("#tool-panel");
@@ -323,6 +341,7 @@
     for (const f of tool.fields) grid.append(makeField(f));
     panel.append(grid);
     updateVisibility();
+    for (const f of tool.fields) if (f.source && f.source.type === "inventory_lists") state.fieldEls[f.name].refresh();
 
     const actions = el("div", { class: "actions" });
     for (const r of tool.runs) {
@@ -475,12 +494,175 @@
     document.querySelectorAll("#table-wrap tbody tr").forEach((tr) => { tr.hidden = f && !tr.textContent.toLowerCase().includes(f); });
   }
 
+  // ---------------------------------------------------------------- site inventory page
+  const enc = encodeURIComponent;
+  const INV_COLS = [["list", "List"], ["site", "Site"], ["ip", "IP Address"], ["hostname", "Hostname"], ["device_type", "Device Type"],
+    ["model", "Model"], ["brand", "Brand"], ["description", "Description"]];
+
+  async function renderInventory() {
+    stopPolling();
+    state.tool = null; state.page = "inventory"; state.jobId = null;
+    renderSidebar($("#tool-filter").value);
+    $("#welcome").hidden = true;
+    const panel = $("#tool-panel");
+    panel.hidden = false;
+    panel.innerHTML = "";
+    panel.append(el("h2", null, "Site Inventory"),
+      el("p", { class: "tool-desc" }, "Import device lists once (CSV / XLSX). They are stored on this PC in data/site_inventory.json and every device tool picks its devices from here."));
+
+    // ---- import
+    const fileInp = el("input", { type: "file", accept: ".csv,.xlsx,.xls" });
+    const nameInp = el("input", { type: "text", placeholder: "List name (default: file name)" });
+    const siteInp = el("input", { type: "text", placeholder: "Used when the file has no Site column" });
+    const modeSel = el("select", null,
+      el("option", { value: "merge" }, "Merge – add new devices, update existing IPs"),
+      el("option", { value: "replace" }, "Replace – list will contain exactly this file"));
+    fileInp.addEventListener("change", () => { if (fileInp.files[0] && !nameInp.value) nameInp.value = fileInp.files[0].name.replace(/\.[^.]+$/, ""); });
+    const importBtn = el("button", { class: "btn btn-primary", onclick: async () => {
+      if (!fileInp.files[0]) return toast("Choose a CSV / XLSX file first", "warning");
+      if (modeSel.value === "replace" && !(await confirmDialog("Replace list", `All devices currently in list "${nameInp.value || fileInp.files[0].name}" will be replaced by this file.`, true))) return;
+      const fd = new FormData();
+      fd.append("file", fileInp.files[0]); fd.append("list_name", nameInp.value); fd.append("mode", modeSel.value); fd.append("default_site", siteInp.value);
+      importBtn.disabled = true;
+      try {
+        const r = await api("/api/inventory/import", { method: "POST", body: fd });
+        toast(`Imported "${r.list}": ${r.added} added, ${r.updated} updated, ${r.skipped} skipped` + (r.removed ? `, ${r.removed} removed` : ""), "success");
+        fileInp.value = ""; nameInp.value = "";
+        await refreshAll();
+      } catch (e) { toast("Import failed: " + e.message, "error"); } finally { importBtn.disabled = false; }
+    } }, "Import");
+    const tplLinks = ["device_list_template.csv", "device_list_command_template.csv", "upgrade_ios_template.csv"].map((t) =>
+      el("a", { class: "btn-link", href: "/api/templates/" + t, download: t, style: "font-size:12px;margin-right:10px" }, "⬇ " + t));
+    panel.append(el("div", { class: "section" }, el("div", { class: "section-title" }, "Import device list"),
+      el("div", { class: "form-grid" },
+        el("div", { class: "field" }, el("label", null, "File (CSV / XLSX)"), fileInp,
+          el("div", { class: "help" }, "Needs an IP column (IP_Address / ip_mgmt / ip / managementIpAddress). Optional: Site or zone, Hostname, Device_Type, Model, Brand, Description. Other columns (e.g. command) are kept too.")),
+        el("div", { class: "field" }, el("label", null, "List name"), nameInp, el("div", { class: "help" }, "Tools select devices by list and site.")),
+        el("div", { class: "field" }, el("label", null, "Import mode"), modeSel),
+        el("div", { class: "field" }, el("label", null, "Default site"), siteInp)),
+      el("div", { class: "actions" }, importBtn, el("span", { class: "muted" }, "Templates: "), ...tplLinks)));
+
+    // ---- lists
+    const listsWrap = el("div", { class: "table-wrap", style: "max-height:30vh" });
+    panel.append(el("div", { class: "section" }, el("div", { class: "section-title" }, "Device lists", el("span", { class: "muted", id: "inv-total" })), listsWrap));
+
+    // ---- devices
+    const listSel = el("select", { style: "width:auto" }), siteSel = el("select", { style: "width:auto" });
+    const search = el("input", { type: "search", placeholder: "Search IP, hostname, description…", style: "width:260px" });
+    const countEl = el("span", { class: "muted" });
+    const devWrap = el("div", { class: "table-wrap" });
+    const formWrap = el("div", { hidden: true, class: "section" });
+    const exportLink = el("a", { class: "btn btn-success btn-sm", href: "#" }, "Export CSV");
+    panel.append(el("div", { class: "section" }, el("div", { class: "section-title" }, "Devices"),
+      el("div", { class: "table-tools" }, listSel, siteSel, search, countEl, el("span", { class: "spacer", style: "flex:1" }),
+        el("button", { class: "btn btn-sm", onclick: () => showForm(null) }, "+ Add device"), exportLink),
+      formWrap, devWrap));
+    const histWrap = el("div", { class: "table-wrap", style: "max-height:30vh" });
+    panel.append(el("details", null, el("summary", null, "Import history"), histWrap));
+
+    const setOptions = (sel, values, keep) => {
+      sel.innerHTML = "";
+      for (const v of values) sel.append(el("option", { value: v.value }, v.label));
+      if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+    };
+
+    function showForm(dev) {
+      formWrap.hidden = false;
+      formWrap.innerHTML = "";
+      const inputs = {};
+      const grid = el("div", { class: "form-grid" });
+      for (const [k, label] of INV_COLS) {
+        let inp;
+        if (k === "device_type") {
+          inp = el("select");
+          for (const t of ["", ...state.meta.device_types]) inp.append(el("option", { value: t }, t || "(use tool default)"));
+        } else inp = el("input", { type: "text" });
+        inp.value = dev ? dev[k] || "" : (k === "list" && listSel.value !== "All" ? listSel.value : "");
+        inputs[k] = inp;
+        grid.append(el("div", { class: "field" }, el("label", null, label, ["ip"].includes(k) ? el("span", { class: "req" }, " *") : null), inp));
+      }
+      formWrap.append(el("div", { class: "section-title" }, dev ? `Edit ${dev.ip}` : "Add device"), grid,
+        el("div", { class: "actions" },
+          el("button", { class: "btn btn-primary", onclick: async () => {
+            const body = { id: dev ? dev.id : undefined };
+            for (const [k] of INV_COLS) body[k] = inputs[k].value;
+            try { await postJson("/api/inventory/devices", body); toast("Saved", "success"); formWrap.hidden = true; await refreshAll(); }
+            catch (e) { toast(e.message, "error"); }
+          } }, "Save"),
+          el("button", { class: "btn", onclick: () => (formWrap.hidden = true) }, "Cancel")));
+      formWrap.scrollIntoView({ block: "nearest" });
+    }
+
+    async function loadDevices() {
+      const qs = `list=${enc(listSel.value)}&site=${enc(siteSel.value)}&q=${enc(search.value)}`;
+      exportLink.href = `/api/inventory/export.csv?list=${enc(listSel.value)}&site=${enc(siteSel.value)}`;
+      const r = await api(`/api/inventory/devices?limit=500&${qs}`);
+      countEl.textContent = r.total > r.devices.length ? `showing ${r.devices.length} of ${r.total} device(s) – narrow the filter to see more` : `${r.total} device(s)`;
+      if (!r.devices.length) { devWrap.innerHTML = `<div class="muted" style="padding:10px">No devices. Import a list above or add one manually.</div>`; return; }
+      const extraCols = [...new Set(r.devices.flatMap((d) => Object.keys(d.extra || {})))].slice(0, 6);
+      let html = "<table><thead><tr>" + INV_COLS.map(([, l]) => `<th>${l}</th>`).join("") + extraCols.map((c) => `<th>${esc(c)}</th>`).join("") + "<th></th></tr></thead><tbody>";
+      for (const d of r.devices) {
+        html += `<tr data-id="${esc(d.id)}">` + INV_COLS.map(([k]) => `<td>${esc(d[k])}</td>`).join("") +
+          extraCols.map((c) => { const v = String((d.extra || {})[c] ?? ""); return `<td title="${esc(v.slice(0, 300))}">${esc(v.replace(/\s+/g, " ").slice(0, 60))}</td>`; }).join("") +
+          `<td><button class="btn btn-sm" data-act="edit">Edit</button> <button class="btn btn-sm" data-act="del">Delete</button></td></tr>`;
+      }
+      devWrap.innerHTML = html + "</tbody></table>";
+      devWrap.onclick = async (e) => {
+        const b = e.target.closest("[data-act]");
+        if (!b) return;
+        const dev = r.devices.find((x) => x.id === b.closest("tr").dataset.id);
+        if (b.dataset.act === "edit") return showForm(dev);
+        if (!(await confirmDialog("Delete device", `Remove ${dev.ip} (${dev.hostname || dev.description || dev.site}) from list "${dev.list}"?`, true))) return;
+        try { await api("/api/inventory/devices/" + dev.id, { method: "DELETE" }); await refreshAll(); } catch (err) { toast(err.message, "error"); }
+      };
+    }
+
+    async function refreshSites() {
+      const r = await api(`/api/inventory/sites?list=${enc(listSel.value)}`);
+      setOptions(siteSel, [{ value: "All", label: "All sites" }, ...r.sites.map((s) => ({ value: s, label: s }))], siteSel.value);
+    }
+
+    async function refreshAll() {
+      const inv = await api("/api/inventory");
+      state.meta.inventory = inv;
+      renderSidebar($("#tool-filter").value);
+      $("#inv-total").textContent = `${inv.total} device(s) in ${inv.lists.length} list(s), ${inv.sites.length} site(s)`;
+      if (!inv.lists.length) listsWrap.innerHTML = `<div class="muted" style="padding:10px">No lists yet.</div>`;
+      else {
+        listsWrap.innerHTML = "<table><thead><tr><th>List</th><th>Devices</th><th>Sites</th><th>Last import file</th><th>Updated</th><th></th></tr></thead><tbody>" +
+          inv.lists.map((l) => `<tr data-list="${esc(l.name)}"><td><b>${esc(l.name)}</b></td><td>${l.count}</td><td title="${esc(l.sites.join(", "))}">${l.sites.length} – ${esc(l.sites.slice(0, 6).join(", "))}${l.sites.length > 6 ? "…" : ""}</td><td>${esc(l.filename)}</td><td>${esc(l.updated)}</td>` +
+            `<td><button class="btn btn-sm" data-lact="view">View</button> <a class="btn btn-sm" href="/api/inventory/export.csv?list=${enc(l.name)}">Export</a> <button class="btn btn-sm" data-lact="del">Delete</button></td></tr>`).join("") + "</tbody></table>";
+        listsWrap.onclick = async (e) => {
+          const b = e.target.closest("[data-lact]");
+          if (!b) return;
+          const name = b.closest("tr").dataset.list;
+          if (b.dataset.lact === "view") { listSel.value = name; await refreshSites(); return loadDevices(); }
+          if (!(await confirmDialog("Delete list", `Delete list "${name}" and all of its devices from Site Inventory?`, true))) return;
+          try { const r = await api("/api/inventory/lists/" + enc(name), { method: "DELETE" }); toast(`Removed ${r.removed} device(s)`, "success"); await refreshAll(); } catch (err) { toast(err.message, "error"); }
+        };
+      }
+      setOptions(listSel, [{ value: "All", label: "All lists" }, ...inv.lists.map((l) => ({ value: l.name, label: `${l.name} (${l.count})` }))], listSel.value);
+      await refreshSites();
+      await loadDevices();
+      histWrap.innerHTML = inv.imports.length ? "<table><thead><tr><th>When</th><th>List</th><th>File</th><th>Mode</th><th>Rows</th><th>Added</th><th>Updated</th><th>Skipped</th><th>Removed</th></tr></thead><tbody>" +
+        inv.imports.map((i) => `<tr><td>${esc(i.imported_at)}</td><td>${esc(i.list)}</td><td>${esc(i.filename)}</td><td>${esc(i.mode)}</td><td>${i.rows}</td><td>${i.added}</td><td>${i.updated}</td><td>${i.skipped}</td><td>${i.removed}</td></tr>`).join("") + "</tbody></table>"
+        : `<div class="muted" style="padding:10px">Nothing imported yet.</div>`;
+    }
+
+    listSel.addEventListener("change", async () => { await refreshSites(); loadDevices(); });
+    siteSel.addEventListener("change", loadDevices);
+    let timer = null;
+    search.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(loadDevices, 250); });
+    try { await refreshAll(); } catch (e) { toast(e.message, "error"); }
+  }
+
   // ---------------------------------------------------------------- routing / boot
   function route() {
     const id = location.hash.replace(/^#/, "");
     const t = state.tools.find((x) => x.id === id);
-    if (t) renderTool(t);
-    else { stopPolling(); state.tool = null; $("#tool-panel").hidden = true; $("#welcome").hidden = false; renderSidebar($("#tool-filter").value); }
+    if (id === "site_inventory") renderInventory();
+    else if (t) renderTool(t);
+    else { state.page = "welcome"; stopPolling(); state.tool = null; $("#tool-panel").hidden = true; $("#welcome").hidden = false; renderSidebar($("#tool-filter").value); }
   }
   window.addEventListener("hashchange", route);
 

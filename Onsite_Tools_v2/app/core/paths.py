@@ -19,6 +19,7 @@ LOGS_DIR = os.path.join(BASE_DIR, "logs")
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 EXPORTS_DIR = os.path.join(BASE_DIR, "exports")
 SCREENSHOTS_DIR = os.path.join(BASE_DIR, "screenshots")
+DATA_DIR = os.path.join(BASE_DIR, "data")
 SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
 
 DEFAULT_SETTINGS = {
@@ -35,7 +36,7 @@ DEFAULT_SETTINGS = {
 
 
 def ensure_dirs():
-    for d in (LOGS_DIR, UPLOADS_DIR, EXPORTS_DIR, SCREENSHOTS_DIR, TEMPLATES_DIR):
+    for d in (LOGS_DIR, UPLOADS_DIR, EXPORTS_DIR, SCREENSHOTS_DIR, TEMPLATES_DIR, DATA_DIR):
         os.makedirs(d, exist_ok=True)
 
 
