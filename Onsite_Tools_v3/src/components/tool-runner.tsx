@@ -134,7 +134,8 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
             <Button variant="secondary" label={f.kind === "folder" ? "Browse folder" : "Browse file"} icon={<FolderOpen className="h-3.5 w-3.5" />}
               clickAction={async () => {
                 const r = await fetch("/api/browse", { method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ kind: f.kind ?? "file", title: f.browseTitle ?? f.label, filter: f.browseFilter }) })
+                  body: JSON.stringify({ kind: f.kind ?? "file", title: f.browseTitle ?? f.label, filter: f.browseFilter,
+                    initial: String(v ?? "") }) }) // reopen where the last pick came from
                 const data = await r.json()
                 if (!r.ok) toast({ body: data.error, type: "error" })
                 else if (data.path) set(f.name, data.path)
