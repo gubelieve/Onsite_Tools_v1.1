@@ -23,7 +23,7 @@ def test_index_meta_and_tools():
     meta = client.get("/api/meta").json()
     assert meta["load_errors"] == {} and "autodetect" in meta["device_types"]
     tools = client.get("/api/tools").json()
-    assert len(tools) == 16 and all("run" not in t for t in tools)
+    assert len(tools) == 14 and all("run" not in t for t in tools)
 
 
 def test_templates_are_downloadable():
@@ -56,9 +56,10 @@ def test_file_endpoint_is_confined_to_project_folder(tmp_path):
     assert client.get("/api/file", params={"path": str(outside)}).status_code == 404
 
 
-def test_calculator_action():
-    r = client.post("/api/tools/calculator/action/calculate", json={"expression": "7*6"})
-    assert r.json() == {"result": "42"}
+def test_tool_action_endpoint():
+    r = client.post("/api/tools/upgrade_ios/action/local_ip", json={})
+    assert r.status_code == 200 and r.json()["value"].count(".") == 3
+    assert client.post("/api/tools/upgrade_ios/action/nope", json={}).status_code == 404
 
 
 def test_interface_report_job_end_to_end(tmp_path):
