@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 export async function getSettings(): Promise<AppSettings> {
-  const rows = await prisma.setting.findMany()
+  const rows = await prisma.setting.findMany().catch(() => [])
   const map = new Map(rows.map((r) => [r.key, r.value]))
   return {
     username: map.get("username") ?? DEFAULT_SETTINGS.username,

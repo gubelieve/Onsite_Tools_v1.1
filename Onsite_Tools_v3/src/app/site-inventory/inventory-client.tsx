@@ -21,7 +21,7 @@ interface ImportInfo { id: string; list: string; filename: string; mode: string;
 interface DeviceRow { id: string; list: string; site: string; ip: string; hostname: string; deviceType: string; model: string; brand: string; description: string; extra: string }
 interface Summary { lists: ListInfo[]; sites: string[]; total: number; imports: ImportInfo[] }
 
-const COLS: [keyof DeviceRow, string][] = [["list", "List"], ["site", "Site"], ["ip", "IP Address"], ["hostname", "Hostname"],
+const COLS: [keyof DeviceRow, string][] = [["list", "List"], ["site", "Device Category"], ["ip", "IP Address"], ["hostname", "Hostname"],
   ["deviceType", "Device Type"], ["model", "Model"], ["brand", "Brand"], ["description", "Description"]]
 const TEMPLATES = ["device_list_template.csv", "device_list_command_template.csv", "upgrade_ios_template.csv"]
 const PAGE = 100
@@ -92,12 +92,12 @@ export function InventoryClient({ summary, deviceTypes }: { summary: Summary; de
             <input ref={fileRef} type="file" accept=".csv,.xlsx"
               onChange={(e) => { const f = e.target.files?.[0]; if (f && !listName) setListName(f.name.replace(/\.[^.]+$/, "")) }}
               className="border-input bg-background file:bg-secondary file:text-secondary-foreground block w-full rounded-lg border p-1.5 text-sm file:mr-3 file:rounded-md file:border-0 file:px-3 file:py-1" />
-            <p className="text-muted-foreground mt-1 text-xs">Needs an IP column (IP_Address / ip_mgmt / ip / managementIpAddress). Optional: Site or zone, Hostname, Device_Type, Model, Brand, Description. Other columns (e.g. command) are kept too.</p>
+            <p className="text-muted-foreground mt-1 text-xs">Needs an IP column (IP_Address / ip_mgmt / ip / managementIpAddress). Optional: Device_Category (or Site / zone), Hostname, Device_Type, Model, Brand, Description. Other columns (e.g. command) are kept too.</p>
           </div>
-          <TextInput label="List name" value={listName} onChange={setListName} placeholder="Default: file name" description="Tools select devices by list and site." />
+          <TextInput label="List name" value={listName} onChange={setListName} placeholder="Default: file name" description="Tools select devices by list and device category." />
           <Selector label="Import mode" value={mode} onChange={setMode}
             options={[{ value: "merge", label: "Merge – add new devices, update existing IPs" }, { value: "replace", label: "Replace – list will contain exactly this file" }]} />
-          <TextInput label="Default site" value={defaultSite} onChange={setDefaultSite} isOptional placeholder="Used when the file has no Site column" />
+          <TextInput label="Default device category" value={defaultSite} onChange={setDefaultSite} isOptional placeholder="Used when the file has no category column" />
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Button variant="primary" label="Import" icon={<Upload className="h-3.5 w-3.5" />}
@@ -110,11 +110,11 @@ export function InventoryClient({ summary, deviceTypes }: { summary: Summary; de
         </div>
       </Panel>
 
-      <Panel title="Device lists" actions={<span className="text-muted-foreground text-xs">{summary.total.toLocaleString()} device(s) in {summary.lists.length} list(s), {summary.sites.length} site(s)</span>}>
+      <Panel title="Device lists" actions={<span className="text-muted-foreground text-xs">{summary.total.toLocaleString()} device(s) in {summary.lists.length} list(s), {summary.sites.length} device categor{summary.sites.length === 1 ? "y" : "ies"}</span>}>
         {summary.lists.length === 0 ? <p className="text-muted-foreground text-sm">No lists yet – import a file above.</p> : (
           <div className="max-h-[30vh] overflow-auto rounded-xl border">
             <table className="w-full border-collapse text-[13px]">
-              <thead><tr>{["List", "Devices", "Sites", "Last import file", "Updated", ""].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
+              <thead><tr>{["List", "Devices", "Device categories", "Last import file", "Updated", ""].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
               <tbody>
                 {summary.lists.map((l) => (
                   <tr key={l.name} className="hover:bg-muted/50 border-b last:border-0">
@@ -147,8 +147,8 @@ export function InventoryClient({ summary, deviceTypes }: { summary: Summary; de
         <div className="mb-3 flex flex-wrap items-end gap-3">
           <div className="w-64"><Selector label="List" size="sm" value={list} onChange={(v) => { setList(v); setSite("All"); setPage(0) }} hasSearch={summary.lists.length > 10}
             options={[{ value: "All", label: "All lists" }, ...summary.lists.map((l) => ({ value: l.name, label: `${l.name} (${l.count})` }))]} /></div>
-          <div className="w-48"><Selector label="Site" size="sm" value={site} onChange={(v) => { setSite(v); setPage(0) }} hasSearch={sites.length > 10}
-            options={[{ value: "All", label: "All sites" }, ...sites.map((s) => ({ value: s, label: s }))]} /></div>
+          <div className="w-48"><Selector label="Device Category" size="sm" value={site} onChange={(v) => { setSite(v); setPage(0) }} hasSearch={sites.length > 10}
+            options={[{ value: "All", label: "All categories" }, ...sites.map((s) => ({ value: s, label: s }))]} /></div>
           <div className="w-72"><TextInput label="Search" size="sm" value={q} onChange={(v) => { setQ(v); setPage(0) }} hasClear placeholder="IP, hostname, description…" /></div>
           <span className="text-muted-foreground pb-2 text-xs">{data.total.toLocaleString()} device(s)</span>
           {pages > 1 && (
@@ -210,7 +210,7 @@ export function InventoryClient({ summary, deviceTypes }: { summary: Summary; de
               <LayoutContent>
                 <FormLayout>
                   <TextInput label="List" value={editing.list} onChange={(v) => setEditing({ ...editing, list: v })} placeholder="manual" />
-                  <TextInput label="Site" value={editing.site} onChange={(v) => setEditing({ ...editing, site: v })} isOptional />
+                  <TextInput label="Device Category" value={editing.site} onChange={(v) => setEditing({ ...editing, site: v })} isOptional />
                   <TextInput label="IP Address" value={editing.ip} onChange={(v) => setEditing({ ...editing, ip: v })} isRequired />
                   <TextInput label="Hostname" value={editing.hostname} onChange={(v) => setEditing({ ...editing, hostname: v })} isOptional />
                   <Selector label="Device Type" value={editing.deviceType} onChange={(v) => setEditing({ ...editing, deviceType: v })}

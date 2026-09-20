@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Download, Play } from "lucide-react"
+import { Download, FolderOpen, Play } from "lucide-react"
 import { AlertDialog } from "@astryxdesign/core/AlertDialog"
 import { Button } from "@astryxdesign/core/Button"
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
@@ -124,7 +124,26 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
     const v = values[f.name]
     const common = { label: f.label, description: f.help, isRequired: f.required }
     switch (f.type) {
-      case "text": case "password": case "path":
+      case "path":
+        return (
+          <div>
+          <div className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <TextInput label={f.label} isRequired={f.required} value={String(v ?? "")} placeholder={f.placeholder} onChange={(x) => set(f.name, x)} />
+            </div>
+            <Button variant="secondary" label={f.kind === "folder" ? "Browse folder" : "Browse file"} icon={<FolderOpen className="h-3.5 w-3.5" />}
+              clickAction={async () => {
+                const r = await fetch("/api/browse", { method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ kind: f.kind ?? "file", title: f.browseTitle ?? f.label, filter: f.browseFilter }) })
+                const data = await r.json()
+                if (!r.ok) toast({ body: data.error, type: "error" })
+                else if (data.path) set(f.name, data.path)
+              }} />
+          </div>
+          {f.help && <p className="text-muted-foreground mt-1 text-xs">{f.help}</p>}
+          </div>
+        )
+      case "text": case "password":
         return <TextInput {...common} type={f.type === "password" ? "password" : "text"} value={String(v ?? "")} placeholder={f.placeholder} onChange={(x) => set(f.name, x)} />
       case "number":
         return <NumberInput {...common} value={Number(v) || 0} min={f.min} max={f.max} onChange={(x) => set(f.name, Number(x) || 0)} />

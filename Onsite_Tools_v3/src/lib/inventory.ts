@@ -8,9 +8,10 @@ import prisma from "./prisma"
 import { findCol, type Row } from "./csv"
 
 export const IP_ALIASES = ["ip_address", "ip", "ip_mgmt", "host", "management_ip", "managementipaddress", "ipaddress"]
-export const SITE_ALIASES = ["site", "zone", "location"]
+// "Device Category" is the grouping shown in the UI; older lists call the same column Site or zone.
+export const SITE_ALIASES = ["device_category", "category", "site", "zone", "location"]
 export const HOSTNAME_ALIASES = ["hostname", "name", "device_name"]
-export const STANDARD_COLUMNS = ["List", "Site", "IP_Address", "Hostname", "Device_Type", "Model", "Brand", "Description"]
+export const STANDARD_COLUMNS = ["List", "Device_Category", "IP_Address", "Hostname", "Device_Type", "Model", "Brand", "Description"]
 
 const isAll = (v?: string | null) => !v || ["All", "All Sites", "All Lists"].includes(v)
 
@@ -127,7 +128,7 @@ function toToolDevice(d: Device): ToolDevice {
   try { extra = JSON.parse(d.extra) } catch { /* keep empty */ }
   return {
     host: d.ip, site: d.site, deviceType: d.deviceType, hostname: d.hostname, description: d.description,
-    raw: { ...extra, List: d.list, Site: d.site, IP_Address: d.ip, Hostname: d.hostname, Device_Type: d.deviceType,
+    raw: { ...extra, List: d.list, Device_Category: d.site, IP_Address: d.ip, Hostname: d.hostname, Device_Type: d.deviceType,
       Model: d.model, Brand: d.brand, Description: d.description },
   }
 }
