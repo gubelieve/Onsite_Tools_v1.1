@@ -3,9 +3,9 @@ import json
 from app.tools import all_tools, get_tool, load_errors, public
 
 EXPECTED = {
-    "backup_configurations", "config_devices", "upgrade_ios", "client_status_checker", "get_inventory",
+    "config_devices", "upgrade_ios", "client_status_checker", "get_inventory",
     "cdp_inventory", "lldp_inventory", "snmp_inventory", "verify_snmp_user", "interface_report",
-    "security_health_check", "dnac_rest_api", "dnac_port_assignment", "sd_wan_api", "capture_dnac", "calculator",
+    "security_health_check", "dnac_rest_api", "dnac_port_assignment", "sd_wan_api", "capture_dnac",
 }
 FIELD_TYPES = {"text", "password", "number", "textarea", "checkbox", "select", "file", "files", "path", "checklist"}
 

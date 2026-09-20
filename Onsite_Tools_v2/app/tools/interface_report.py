@@ -12,7 +12,7 @@ TOOL = {
     "name": "Interface Report",
     "category": "Log Analysis",
     "order": 50,
-    "description": "Parse 'show running-config' log files (e.g. from Backup Configurations) and build a per-interface "
+    "description": "Parse 'show running-config' log files (e.g. from Config Devices) and build a per-interface "
                    "report: switchport mode, description, BPDU guard, VLANs, dot1x template, VLAN names.",
     "fields": [
         {"name": "log_folder", "label": "Log folder", "type": "path", "kind": "folder",

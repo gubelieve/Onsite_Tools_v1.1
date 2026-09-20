@@ -20,7 +20,6 @@ UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 EXPORTS_DIR = os.path.join(BASE_DIR, "exports")
 SCREENSHOTS_DIR = os.path.join(BASE_DIR, "screenshots")
 SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
-COMMANDS_FILE = os.path.join(BASE_DIR, "commands.csv")
 
 DEFAULT_SETTINGS = {
     "host": "127.0.0.1",
