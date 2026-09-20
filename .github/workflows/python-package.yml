@@ -40,3 +40,29 @@ jobs:
     - name: Test with pytest
       run: |
         pytest Onsite_Tools_v2/tests -q
+
+  # Onsite_Tools_v3 - Next.js / TypeScript edition (no Python)
+  web-v3:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Onsite_Tools_v3
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: Onsite_Tools_v3/package-lock.json
+    - name: Install dependencies
+      run: npm ci --no-audit --no-fund
+    - name: Create the local SQLite database
+      run: npx prisma db push
+    - name: Lint and typecheck
+      run: |
+        npm run lint
+        npm run typecheck
+    - name: Unit tests (parsers, inventory, SSH driver against a fake device)
+      run: npm test
+    - name: Production build
+      run: npm run build
