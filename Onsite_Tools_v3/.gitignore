@@ -1,0 +1,15 @@
+/node_modules
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+npm-debug.log*
+.env*
+!.env.example
+
+# runtime data - contains customer addresses, device output and the local database
+/data/
+/logs/
+/uploads/
+/exports/
+/screenshots/
