@@ -23,8 +23,11 @@ function md5Of(file: string): Promise<string> {
   })
 }
 
+/** File name of a Windows or POSIX path, whatever OS the app itself runs on. */
+export const baseName = (file: string) => file.split(/[\\/]/).pop() ?? file
+
 /** Cisco "copy" refuses some characters in the destination name. */
-export const flashName = (file: string) => path.basename(file).replace(/[_ ]/g, "-")
+export const flashName = (file: string) => baseName(file).replace(/[_ ]/g, "-")
 
 class Stage {
   hostname: string
@@ -105,7 +108,7 @@ class Stage {
   private async upload(s: SshSession) {
     const filename = flashName(this.iosFile)
     const size = fs.statSync(this.iosFile).size
-    const cmd = `copy ftp://${this.ftpIp}/${path.basename(this.iosFile)} flash:${filename}`
+    const cmd = `copy ftp://${this.ftpIp}/${baseName(this.iosFile)} flash:${filename}`
     this.emit("Running", `Starting FTP upload of ${filename} from ${this.ftpIp} (${size.toLocaleString()} bytes)`)
     let out = await s.sendTiming(cmd)
     if (out.includes("Destination filename")) out += await s.sendTiming(filename)
