@@ -1,0 +1,6 @@
+URL_Name,Endpoint
+Devices,/dna/intent/api/v1/network-device
+Sites,/dna/intent/api/v1/site
+Topology,/dna/intent/api/v1/topology/physical-topology
+Interfaces,/dna/intent/api/v1/interface
+Clients,/dna/intent/api/v1/client-detail

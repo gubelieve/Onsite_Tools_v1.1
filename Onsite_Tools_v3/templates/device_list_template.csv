@@ -1,0 +1,4 @@
+Site,IP_Address,Device_Type,Description
+SiteA,192.168.1.1,autodetect,Core switch
+SiteA,192.168.1.2,cisco_ios,Access switch
+SiteB,192.168.2.1,autodetect,Router

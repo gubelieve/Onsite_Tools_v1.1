@@ -1,0 +1,64 @@
+// Local SQLite database - one file (data/onsite.db) on the PC that runs the app.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// Site Inventory: every device tool picks its devices from here (list + site).
+model Device {
+  id          String   @id @default(cuid())
+  list        String
+  site        String   @default("")
+  ip          String
+  hostname    String   @default("")
+  deviceType  String   @default("")
+  model       String   @default("")
+  brand       String   @default("")
+  description String   @default("")
+  // Any other imported column (e.g. "command"), stored as a JSON object
+  extra       String   @default("{}")
+  source      String   @default("")
+  updatedAt   DateTime @updatedAt
+
+  @@unique([list, ip])
+  @@index([site])
+}
+
+model ImportLog {
+  id         String   @id @default(cuid())
+  list       String
+  filename   String
+  mode       String
+  rows       Int
+  added      Int
+  updated    Int
+  skipped    Int
+  removed    Int
+  importedAt DateTime @default(now())
+}
+
+// Finished tool runs, so results survive a restart. Live state is kept in memory (src/lib/jobs.ts).
+model JobRun {
+  id         String    @id
+  toolId     String
+  toolName   String
+  runLabel   String
+  status     String
+  summary    String    @default("")
+  rowCount   Int       @default(0)
+  runDir     String    @default("")
+  // Full JSON snapshot (columns, rows, messages, artifacts). Credentials are never stored.
+  snapshot   String
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([toolId, createdAt])
+}
+
+model Setting {
+  key   String @id
+  value String
+}
