@@ -89,3 +89,14 @@ Onsite_Tools_v2/
 .venv\Scripts\python -m app --port 8088            # Windows
 .venv/bin/python -m app --host 0.0.0.0 --no-browser
 ```
+
+## Tests
+
+```bash
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+.venv\Scripts\python -m pytest tests -q
+```
+
+Tests ครอบคลุม tool registry, parser ของทุกเครื่องมือ (CDP/LLDP/inventory/SNMP/interface/health check),
+CSV loader, job runner (progress / error / stop) และ REST API ผ่าน FastAPI TestClient – ไม่ต้องมีอุปกรณ์จริง
+GitHub Actions (`.github/workflows/python-package.yml`) run ชุดนี้บน Python 3.9 / 3.10 / 3.11
