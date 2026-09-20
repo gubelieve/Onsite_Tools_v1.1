@@ -22,7 +22,7 @@ EXPORT_COLUMNS = ["Hostname", "IP Management", "SNMPv2 Community String", "SNMPv
 
 def parse_snmp_community(output):
     return "; ".join(m.group(1) for m in re.finditer(
-        r"snmp-server\s+community\s+(\S+)\s+(?:RO|RW)(?:\s+(\S+))?", output, re.IGNORECASE))
+        r"snmp-server[ \t]+community[ \t]+(\S+)[ \t]+(?:RO|RW)\b", output, re.IGNORECASE))
 
 
 def parse_snmp_user(output, result):
