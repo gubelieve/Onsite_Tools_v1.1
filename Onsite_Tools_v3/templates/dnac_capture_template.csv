@@ -1,0 +1,3 @@
+url,username,password,xpath_user,xpath_pwd,xpath_login,description,session_type
+https://dnac.example.com/,admin,your_password,//input[@id="username"],//input[@id="password"],//button[@type="submit"],dnac_login,login
+https://dnac.example.com/dna/assurance/home,admin,your_password,//input[@id="username"],//input[@id="password"],//button[@type="submit"],dnac_assurance,direct
