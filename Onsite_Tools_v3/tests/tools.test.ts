@@ -29,11 +29,18 @@ describe("tool registry", () => {
     for (const t of TOOLS) for (const f of t.fields) if (f.type === "password") expect(f.default ?? "").toBe("")
   })
 
-  it("the IOS install stage must be confirmed", () => {
+  it("the IOS runs that destroy something must be confirmed", () => {
     const runs = getTool("upgrade-ios")!.runs
-    expect(runs.map((r) => r.params?.stage)).toEqual([0, 1, 2, 3, 4, 5])
-    expect(runs[3]).toMatchObject({ danger: true })
-    expect(runs[3].confirm).toBeTruthy()
+    expect(runs.map((r) => r.params?.stage)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    // Installing (reload) and deleting files from flash; listing what would be deleted is not one of them.
+    for (const i of [3, 7]) {
+      expect(runs[i], runs[i].label).toMatchObject({ danger: true })
+      expect(runs[i].confirm, runs[i].label).toBeTruthy()
+    }
+    expect(runs[6].danger).toBeFalsy()
+    expect(runs[6].confirm).toBeFalsy()
+    // Cleanup works on what is already on flash, so it must not demand an image on this PC.
+    for (const i of [6, 7]) expect(runs[i].optionalFields).toContain("iosFile")
     expect(flashName("C:\\ftp\\cat9k_iosxe 17.09.bin")).toBe("cat9k-iosxe-17.09.bin")
   })
 
