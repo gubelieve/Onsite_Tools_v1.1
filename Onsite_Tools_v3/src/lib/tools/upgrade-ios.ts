@@ -18,8 +18,19 @@ import { localIp } from "../settings"
 import { devicesFor, openSession } from "./common"
 import { INVENTORY_FIELDS, num, str, type Params, type ToolDef } from "./types"
 
-const STAGES = ["Verify Environment", "Upload IOS", "Verify MD5", "Install Image", "Check Status", "Verify Services"]
+const STAGES = ["Verify Environment", "Upload IOS", "Verify MD5", "Install Image", "Check Status", "Verify Services",
+  "List Inactive Images", "Remove Inactive Images"]
 const COLUMNS = ["Stage", "Host", "Hostname", "Status", "Message", "Bytes Transferred", "Output", "Timestamp"]
+
+/** One row per file to be deleted, up to this many - the rest are summarised. */
+const MAX_FILE_ROWS = 60
+/** What "install remove inactive" stops at when it wants an answer. */
+const QUESTION = /Do you want to remove the above files\?\s*\[y\/n\]\s*$/i
+const mb = (bytes: number) => (bytes / 1048576).toFixed(1)
+
+/** The two cleanup runs are not part of the 0-5 sequence, so they are named rather than numbered. */
+export const stageLabel = (stage: number) =>
+  stage <= 5 ? `Stage ${stage}` : stage === 6 ? "Cleanup (list)" : "Cleanup (remove)"
 
 function md5Of(file: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -56,6 +67,30 @@ export async function explainFtpFailure(ftp: SingleFileFtpServer, out: string, d
     'allow this app through the Windows firewall for all ports, or use "SCP push", which needs no inbound connection.'
 }
 
+/**
+ * The files "install remove inactive" offers to delete: the lines between "The following files will be deleted:"
+ * and the [y/n] question. A stack repeats the list per member, so the "[switch N]" heading is kept with each file -
+ * the same file name on two members is two different files.
+ */
+export function parseInactiveFiles(out: string): string[] {
+  const start = /The following files will be deleted:?/i.exec(out)
+  if (!start) return []
+  const rest = out.slice(start.index + start[0].length)
+  const stop = /Do you want to remove|SUCCESS:|FAILED:|install_remove:\s*(END|ABORT)|%\s*Error/i.exec(rest)
+  const files: string[] = []
+  let member = ""
+  for (const raw of (stop ? rest.slice(0, stop.index) : rest).split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line) continue
+    const head = /^\[([^\]]+)\]:?$/.exec(line)
+    if (head) { member = head[1].trim(); continue }
+    if (!/^([/\\]|(flash|bootflash|crashinfo|harddisk|disk\d|usbflash\d)[\d-]*:)/i.test(line)) continue
+    const file = member ? `${member}: ${line}` : line
+    if (!files.includes(file)) files.push(file)
+  }
+  return files
+}
+
 /** One stage for one device. Exported for the end-to-end test against the fake device. */
 export class Stage {
   hostname: string
@@ -65,7 +100,7 @@ export class Stage {
   }
 
   private emit(status: string, message: string, bytes = "0", output = "") {
-    this.ctx.addRow({ Stage: `Stage ${this.stage}`, Host: this.device.host, Hostname: this.hostname, Status: status, Message: message,
+    this.ctx.addRow({ Stage: stageLabel(this.stage), Host: this.device.host, Hostname: this.hostname, Status: status, Message: message,
       "Bytes Transferred": bytes, Output: output, Timestamp: hms() })
   }
 
@@ -74,7 +109,7 @@ export class Stage {
       // safeName: a device stored as "10.0.0.1:2222" would otherwise be an illegal file name on Windows.
       fs.appendFileSync(path.join(this.ctx.runDir, `stage_${this.stage}_${safeName(this.device.host)}_${safeName(this.hostname)}.log`),
         `\n${"=".repeat(80)}\nTimestamp: ${new Date().toLocaleString("sv-SE")}\nHost: ${this.device.host}\nHostname: ${this.hostname}\n` +
-        `Stage: Stage ${this.stage}\nStatus: ${status}\nCommand: ${command}\nOutput:\n${output}\n${"=".repeat(80)}\n`, "utf8")
+        `Stage: ${stageLabel(this.stage)}\nStatus: ${status}\nCommand: ${command}\nOutput:\n${output}\n${"=".repeat(80)}\n`, "utf8")
     } catch { /* never break a stage because of logging */ }
   }
 
@@ -91,9 +126,10 @@ export class Stage {
       this.hostname = s.hostname || this.hostname
     } catch (e) { this.emit("Failed", `Connection failed: ${(e as Error).message}`); return }
     try {
-      await [this.verifyEnvironment, this.upload, this.verifyMd5, this.install, this.checkStatus, this.verifyServices][this.stage].call(this, s)
+      await [this.verifyEnvironment, this.upload, this.verifyMd5, this.install, this.checkStatus, this.verifyServices,
+        this.listInactive, this.removeInactive][this.stage].call(this, s)
     } catch (e) {
-      this.emit("Failed", `Stage ${this.stage} failed: ${(e as Error).message}`, "0", String((e as Error).stack ?? e))
+      this.emit("Failed", `${stageLabel(this.stage)} failed: ${(e as Error).message}`, "0", String((e as Error).stack ?? e))
     } finally { s.close() }
   }
 
@@ -281,6 +317,58 @@ export class Stage {
     const down = (outs[1].match(/\s(administratively down|down)\s/g) ?? []).length
     this.emit("Completed", `Services verified${down ? ` (${down} interface line(s) down)` : ""}`, "0", outs.join("\n"))
   }
+
+  // --------------------------------------------------------------------- flash cleanup
+  /** Ask what "install remove inactive" would delete, then answer no. Nothing is removed. */
+  private async listInactive(s: SshSession) { await this.installRemove(s, false) }
+
+  /** Delete the inactive images. The file list is in the results and the log before the answer is given. */
+  private async removeInactive(s: SshSession) { await this.installRemove(s, true) }
+
+  private async freeBytes(s: SshSession): Promise<number> {
+    const out = await this.run1(s, "dir flash:", 120).catch(() => "")
+    return Number(/(\d+)\s+bytes free/.exec(out)?.[1] ?? 0)
+  }
+
+  private async installRemove(s: SshSession, remove: boolean) {
+    const cmd = "install remove inactive"
+    const freeBefore = await this.freeBytes(s)
+    this.emit("Running", remove ? "Looking for inactive images to delete..." : "Listing inactive images - nothing will be deleted")
+    // The device scans flash (minutes on a stack) and then either asks the question or comes straight back.
+    let out = await s.sendUntil(cmd, QUESTION, 15 * 60)
+    if (/Invalid input|Incomplete command|Unknown command|Ambiguous command/i.test(out)) {
+      this.logCmd(cmd, out, "Failed")
+      this.emit("Failed", "This device does not support 'install remove inactive' - it needs IOS-XE in install mode. " +
+        "In bundle mode, free space by deleting the old image with 'delete flash:<file>'.", "0", out)
+      return
+    }
+    const files = parseInactiveFiles(out)
+    const asked = QUESTION.test(out)
+    if (!asked && !files.length) {
+      this.logCmd(cmd, out, "Completed")
+      this.emit("Completed", `Nothing to clean up - no inactive images on flash (${mb(freeBefore)}MB free)`, "0", out)
+      return
+    }
+    // Every file gets its own row, so the list can be read (and exported) before anything is deleted.
+    for (const file of files.slice(0, MAX_FILE_ROWS)) this.emit(remove ? "Deleting" : "Will be deleted", file)
+    if (files.length > MAX_FILE_ROWS) this.emit("Info", `... and ${files.length - MAX_FILE_ROWS} more file(s) - full list in Output`)
+
+    if (!remove) {
+      if (asked) out += "\n" + (await s.send("n", { timeoutSec: 120 }))
+      this.logCmd(cmd, out, "Listed")
+      this.emit("Completed", `${files.length} file(s) can be deleted. Nothing was deleted - use "Cleanup: remove inactive images" ` +
+        "to free the space.", "0", out)
+      return
+    }
+    // Deleting and the post-remove cleanup that follows it can take a few minutes on a stack.
+    out += "\n" + (await s.send("y", { timeoutSec: 20 * 60 }))
+    const freeAfter = await this.freeBytes(s)
+    const freed = Math.max(0, freeAfter - freeBefore)
+    const failed = /FAILED|%\s*Error/i.test(out) && !/SUCCESS/i.test(out)
+    this.logCmd(cmd, out, failed ? "Failed" : "Completed")
+    if (failed) { this.emit("Failed", "install remove inactive did not finish cleanly - read the output before retrying", "0", out); return }
+    this.emit("Completed", `${files.length} file(s) deleted, ${mb(freed)}MB freed (${mb(freeAfter)}MB free now)`, String(freed), out)
+  }
 }
 
 export const upgradeIos: ToolDef = {
@@ -318,11 +406,18 @@ export const upgradeIos: ToolDef = {
       confirm: "WARNING: this installs the new IOS image on ALL selected devices. Devices will reload and service will be interrupted. Proceed?" },
     { id: "stage4", label: "Stage 4: Check Status", params: { stage: 4 } },
     { id: "stage5", label: "Stage 5: Verify Services", params: { stage: 5 } },
+    // Flash cleanup. Listing needs no image file and deletes nothing, so it is safe to press at any time.
+    { id: "cleanup-list", label: "Cleanup: list inactive images", params: { stage: 6 }, optionalFields: ["iosFile"] },
+    { id: "cleanup-remove", label: "Cleanup: remove inactive images", params: { stage: 7 }, optionalFields: ["iosFile"], danger: true,
+      confirm: "This runs 'install remove inactive' on ALL selected devices and answers yes: the inactive IOS package files are " +
+        "deleted from flash to free space. Files in use by the running image are never touched, and the device does not reload. " +
+        "Run 'Cleanup: list inactive images' first to see exactly which files will be deleted. Proceed?" },
   ],
   async run(ctx, params) {
-    const stage = Math.min(5, Math.max(0, Number(params.stage) || 0))
+    const stage = Math.min(7, Math.max(0, Number(params.stage) || 0))
     const iosFile = str(params.iosFile).trim().replace(/^"|"$/g, "")
-    if (!fs.existsSync(iosFile) || !fs.statSync(iosFile).isFile()) { ctx.error(`IOS image file not found: ${iosFile}`); return }
+    // The cleanup runs work on what is already on flash - they need no image on this PC.
+    if (stage <= 5 && (!fs.existsSync(iosFile) || !fs.statSync(iosFile).isFile())) { ctx.error(`IOS image file not found: ${iosFile}`); return }
     const devices = await devicesFor(ctx, params)
     if (!devices.length) return
     // One upgrade = one session: every stage writes into the same folder and keeps the rows of the stages
@@ -335,7 +430,7 @@ export const upgradeIos: ToolDef = {
     ctx.info(session.runs.length
       ? `Session ${path.basename(session.dir)} - continuing after ${session.runs.map((r) => r.label).join(", ")}.`
       : `Session ${path.basename(session.dir)} started. Every stage logs into this folder until you press Done.`)
-    ctx.summary(`Stage ${stage} - ${STAGES[stage]}: ${devices.length} device(s)`)
+    ctx.summary(`${stageLabel(stage)} - ${STAGES[stage]}: ${devices.length} device(s)`)
     const method = str(params.transferMethod, "ftp-builtin")
     const ftpIp = (method === "ftp-external" ? str(params.ftpIpExternal) : str(params.ftpIp)).trim() || localIp()
     let ftp: SingleFileFtpServer | null = null
@@ -351,11 +446,11 @@ export const upgradeIos: ToolDef = {
     }
     // Only the rows this stage produced count towards its result - the rows above it belong to earlier stages.
     const rows = ctx.rows().slice(before)
-    appendRun(session, `Stage ${stage}`, COLUMNS, rows)
+    appendRun(session, stageLabel(stage), COLUMNS, rows)
     const failed = rows.filter((r) => ["Failed", "Error"].includes(String(r.Status))).length
     const completed = rows.filter((r) => r.Status === "Completed").length
-    ctx.summary(`Stage ${stage} - ${STAGES[stage]}: ${completed} completed, ${failed} failed check(s), ${devices.length} device(s)`)
-    if (failed) ctx.warn(`Stage ${stage} finished with ${failed} failed check(s). Review the results before continuing.`)
-    else ctx.info(`Stage ${stage} (${STAGES[stage]}) finished for ${devices.length} device(s).`)
+    ctx.summary(`${stageLabel(stage)} - ${STAGES[stage]}: ${completed} completed, ${failed} failed check(s), ${devices.length} device(s)`)
+    if (failed) ctx.warn(`${stageLabel(stage)} finished with ${failed} failed check(s). Review the results before continuing.`)
+    else ctx.info(`${stageLabel(stage)} (${STAGES[stage]}) finished for ${devices.length} device(s).`)
   },
 }
