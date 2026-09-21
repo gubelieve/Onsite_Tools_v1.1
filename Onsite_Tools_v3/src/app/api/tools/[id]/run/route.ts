@@ -12,7 +12,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const body = (await req.json().catch(() => ({}))) as { params?: Params; runId?: string }
   const runDef = tool.runs.find((r) => r.id === body.runId) ?? tool.runs[0]
   const p: Params = { ...(body.params ?? {}), ...(runDef.params ?? {}) }
-  const missing = tool.fields.filter((f) => f.required && visible(f, p) && empty(p[f.name])).map((f) => f.label)
+  const missing = tool.fields
+    .filter((f) => f.required && !runDef.optionalFields?.includes(f.name) && visible(f, p) && empty(p[f.name]))
+    .map((f) => f.label)
   if (missing.length) return NextResponse.json({ error: `Please fill in: ${missing.join(", ")}` }, { status: 400 })
   return NextResponse.json({ jobId: jobs.start(tool, p, runDef.label) })
 }

@@ -41,6 +41,8 @@ export interface RunDef {
   danger?: boolean
   confirm?: string
   notice?: string
+  /** Fields this run does not need, although the form marks them required (e.g. flash cleanup needs no image). */
+  optionalFields?: string[]
 }
 
 export type Params = Record<string, unknown>

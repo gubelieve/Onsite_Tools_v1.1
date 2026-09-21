@@ -223,6 +223,18 @@ export class SshSession {
     return promptRegex(this.prompt).test(text.replace(/\s+$/, ""))
   }
 
+  /**
+   * Run a command that either finishes (prompt) or stops at a question the device asks ("... [y/n]").
+   * Returns the raw output with nothing stripped, because the question line is part of what the caller reads.
+   */
+  async sendUntil(command: string, question: RegExp, timeoutSec: number): Promise<string> {
+    const re = new RegExp(`(?:${promptRegex(this.prompt).source})|(?:${question.source})`, "i")
+    this.buffer = ""
+    this.write(command)
+    const raw = await this.readUntil((b) => re.test(b), timeoutSec * 1000)
+    return raw.replace(ANSI, "").replace(/\r/g, "")
+  }
+
   /** Wait for the prompt to come back after a long-running interactive command (e.g. "copy"). */
   async waitForPrompt(timeoutSec: number): Promise<string> {
     const re = promptRegex(this.prompt)
