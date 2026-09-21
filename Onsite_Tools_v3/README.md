@@ -57,7 +57,7 @@
 
 | กลุ่ม | เครื่องมือ | แหล่งอุปกรณ์ |
 |-------|-----------|---------------|
-| SSH Tools | Config Devices (Verify / Config mode, คอลัมน์ต่อคำสั่ง, `command` ต่ออุปกรณ์), IOS Upgrade (6 stage), Client Status Checker | Site Inventory |
+| SSH Tools | Config Devices (Verify / Config mode, คอลัมน์ต่อคำสั่ง, `command` ต่ออุปกรณ์), IOS Upgrade (6 stage + cleanup flash), Client Status Checker | Site Inventory |
 | Inventory | Get Inventory, CDP Inventory, LLDP Inventory, SNMP Inventory, Verify SNMP User | Site Inventory |
 | Log Analysis | Interface Report, Security Health Check | โฟลเดอร์ log หรือ upload |
 | Catalyst Center / SD-WAN | DNAC REST API, DNAC Port Assignment, SD-WAN Site List, Capture DNAC | CSV เฉพาะงาน / Site Inventory (Port Assignment) |
@@ -103,6 +103,21 @@ ode.exe'
 
 ในโฟลเดอร์ session มี `stage_<n>_<ip>_<hostname>.log` (คำสั่ง + output ทุกคำสั่ง), `job.log`, `session.json`
 และ `session_results.csv` ที่รวมผลของทุก stage – สถานะ session เก็บไว้ในไฟล์ จึงไม่หายถ้าปิด/เปิด App ใหม่
+
+## IOS Upgrade – Cleanup: ลบ image เก่าที่ไม่ได้ใช้ (`install remove inactive`)
+
+ใช้ตอน flash ไม่พอสำหรับ image ใหม่ แยกเป็น 2 ปุ่ม เพื่อให้ **เห็นรายชื่อไฟล์ก่อนแล้วค่อย confirm**
+
+| ปุ่ม | ทำอะไร |
+|------|--------|
+| **Cleanup: list inactive images** | สั่ง `install remove inactive` แล้ว **ตอบ n** – อุปกรณ์บอกว่าจะลบไฟล์อะไรบ้าง ขึ้นในตารางไฟล์ละ 1 แถว (Status = `Will be deleted`) **ไม่มีอะไรถูกลบ** |
+| **Cleanup: remove inactive images** | ปุ่มสีแดง มี confirm ก่อน – สั่งคำสั่งเดิมแล้ว **ตอบ y** ลบจริง แล้วรายงานว่าลบกี่ไฟล์ / ได้พื้นที่คืนกี่ MB (เทียบ `dir flash:` ก่อน-หลัง) |
+
+* ไฟล์ที่ image ที่กำลัง run ใช้อยู่ อุปกรณ์จะไม่ลบให้เอง (`File is in use, will not delete`) และ **ไม่มีการ reload**
+* stack จะแยกให้เป็นรายสมาชิก เช่น `switch 1: /flash/cat9k-espbase...pkg` เพราะไฟล์ชื่อเดียวกันบนคนละ switch คือคนละไฟล์
+* 2 ปุ่มนี้ **ไม่ต้องเลือก IOS image file** (ทำงานกับของที่อยู่บน flash อยู่แล้ว) กดได้เลยแม้ช่อง image ว่าง
+* อุปกรณ์ที่เป็น bundle mode / IOS เก่าจะไม่มีคำสั่งนี้ – เครื่องมือจะบอกตรง ๆ ว่าต้องใช้ `delete flash:<file>` แทน
+* ทั้ง log และรายชื่อไฟล์ถูกเก็บลงโฟลเดอร์ session เดียวกับ stage อื่น ๆ
 
 ## ปุ่ม Zip log files
 
