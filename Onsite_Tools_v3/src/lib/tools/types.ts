@@ -55,6 +55,8 @@ export interface ToolDef {
   fields: FieldDef[]
   columns: string[]
   runs: RunDef[]
+  /** Runs of this tool share one log folder and one results table until the user presses Done. */
+  session?: boolean
   run: (ctx: JobContext, params: Params) => Promise<void>
 }
 

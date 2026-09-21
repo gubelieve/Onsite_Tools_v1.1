@@ -2,8 +2,9 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Download, FolderOpen, Play } from "lucide-react"
+import { CheckCircle2, Download, FolderOpen, Play } from "lucide-react"
 import { AlertDialog } from "@astryxdesign/core/AlertDialog"
+import { Badge } from "@astryxdesign/core/Badge"
 import { Button } from "@astryxdesign/core/Button"
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
 import { NumberInput } from "@astryxdesign/core/NumberInput"
@@ -17,6 +18,7 @@ import type { FieldDef, PublicTool, RunDef } from "@/lib/tools/types"
 
 type Values = Record<string, unknown>
 interface HistoryItem { id: string; runLabel: string; status: string; created: string; rowCount: number }
+interface SessionInfo { active: boolean; dir: string; name: string; started: string; rowCount: number; runs: string[] }
 interface Defaults { username: string; deviceType: string; threads: number; snmpCommunity: string; localIp: string }
 
 const CRED_KEY = "onsite:creds"
@@ -66,6 +68,16 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
       .catch(() => undefined)
     return () => { alive = false }
   }, [tool.id, historyTick])
+
+  // Session tools (IOS Upgrade) keep every run in one folder until Done, so the bar has to follow every run.
+  const [session, setSession] = React.useState<SessionInfo | null>(null)
+  React.useEffect(() => {
+    if (!tool.session) return
+    let alive = true
+    fetch(`/api/sessions/${tool.id}`, { cache: "no-store" }).then((r) => r.json())
+      .then((d: SessionInfo) => { if (alive) setSession(d) }).catch(() => undefined)
+    return () => { alive = false }
+  }, [tool.session, tool.id, historyTick])
 
   const list = String(values.inventoryList ?? "All"), site = String(values.site ?? "All")
   React.useEffect(() => {
@@ -185,6 +197,30 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
 
   return (
     <>
+      {tool.session && session && (
+        <Panel>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+            <Badge variant={session.active ? "info" : "neutral"} label={session.active ? "SESSION OPEN" : "NO SESSION"} />
+            {session.active ? (
+              <>
+                <span><b>{session.name}</b> · started {session.started}</span>
+                <span className="text-muted-foreground">{session.runs.length ? session.runs.join(" → ") : "no stage run yet"} · {session.rowCount} row(s)</span>
+                <span className="text-muted-foreground inline-flex items-center gap-1 text-xs" title={session.dir}><FolderOpen className="h-3.5 w-3.5" />{session.dir}</span>
+                <span className="flex-1" />
+                <Button variant="secondary" size="sm" label="Done — start a new session" icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                  clickAction={async () => {
+                    await fetch(`/api/sessions/${tool.id}`, { method: "DELETE" })
+                    toast({ body: "Session closed. The next run starts a new log folder." })
+                    refreshHistory()
+                  }} />
+              </>
+            ) : (
+              <span className="text-muted-foreground">The next run opens a new log folder. Every stage after it joins the same folder and the same table until you press Done.</span>
+            )}
+          </div>
+        </Panel>
+      )}
+
       <Panel>
         <div className="grid grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2">
           {tool.fields.filter(visible).map((f) => (

@@ -12,7 +12,8 @@ import { noInboundHint } from "../net/firewall"
 import { SingleFileFtpServer } from "../net/ftp-server"
 import { scpPush } from "../net/scp"
 import { SshSession } from "../net/ssh"
-import { hms } from "../paths"
+import { hms, safeName } from "../paths"
+import { appendRun, openSession as openRunSession } from "../session"
 import { localIp } from "../settings"
 import { devicesFor, openSession } from "./common"
 import { INVENTORY_FIELDS, num, str, type Params, type ToolDef } from "./types"
@@ -70,7 +71,8 @@ export class Stage {
 
   private logCmd(command: string, output: string, status = "Completed") {
     try {
-      fs.appendFileSync(path.join(this.ctx.runDir, `stage_${this.stage}_${this.device.host}_${this.hostname}.log`),
+      // safeName: a device stored as "10.0.0.1:2222" would otherwise be an illegal file name on Windows.
+      fs.appendFileSync(path.join(this.ctx.runDir, `stage_${this.stage}_${safeName(this.device.host)}_${safeName(this.hostname)}.log`),
         `\n${"=".repeat(80)}\nTimestamp: ${new Date().toLocaleString("sv-SE")}\nHost: ${this.device.host}\nHostname: ${this.hostname}\n` +
         `Stage: Stage ${this.stage}\nStatus: ${status}\nCommand: ${command}\nOutput:\n${output}\n${"=".repeat(80)}\n`, "utf8")
     } catch { /* never break a stage because of logging */ }
@@ -307,6 +309,7 @@ export const upgradeIos: ToolDef = {
     { name: "threads", label: "Max parallel sessions", type: "number", default: 3, min: 1, max: 10, width: "half" },
   ],
   columns: COLUMNS,
+  session: true,
   runs: [
     { id: "stage0", label: "Stage 0: Verify Environment", params: { stage: 0 } },
     { id: "stage1", label: "Stage 1: Upload IOS", params: { stage: 1 } },
@@ -322,7 +325,16 @@ export const upgradeIos: ToolDef = {
     if (!fs.existsSync(iosFile) || !fs.statSync(iosFile).isFile()) { ctx.error(`IOS image file not found: ${iosFile}`); return }
     const devices = await devicesFor(ctx, params)
     if (!devices.length) return
+    // One upgrade = one session: every stage writes into the same folder and keeps the rows of the stages
+    // before it, until the user presses Done.
+    const session = openRunSession(this.id)
+    ctx.setRunDir(session.dir)
     ctx.setColumns(COLUMNS)
+    for (const row of session.rows) ctx.addRow(row)
+    const before = ctx.rows().length
+    ctx.info(session.runs.length
+      ? `Session ${path.basename(session.dir)} - continuing after ${session.runs.map((r) => r.label).join(", ")}.`
+      : `Session ${path.basename(session.dir)} started. Every stage logs into this folder until you press Done.`)
     ctx.summary(`Stage ${stage} - ${STAGES[stage]}: ${devices.length} device(s)`)
     const method = str(params.transferMethod, "ftp-builtin")
     const ftpIp = (method === "ftp-external" ? str(params.ftpIpExternal) : str(params.ftpIp)).trim() || localIp()
@@ -337,7 +349,9 @@ export const upgradeIos: ToolDef = {
     } finally {
       if (ftp) { await ftp.stop(); ctx.log("Built-in FTP server stopped") }
     }
-    const rows = ctx.rows()
+    // Only the rows this stage produced count towards its result - the rows above it belong to earlier stages.
+    const rows = ctx.rows().slice(before)
+    appendRun(session, `Stage ${stage}`, COLUMNS, rows)
     const failed = rows.filter((r) => ["Failed", "Error"].includes(String(r.Status))).length
     const completed = rows.filter((r) => r.Status === "Completed").length
     ctx.summary(`Stage ${stage} - ${STAGES[stage]}: ${completed} completed, ${failed} failed check(s), ${devices.length} device(s)`)
