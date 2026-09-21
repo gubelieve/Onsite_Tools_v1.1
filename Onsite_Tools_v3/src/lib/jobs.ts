@@ -79,6 +79,8 @@ export class JobContext {
   get stopRequested() { return this.job.stop }
   checkStop() { if (this.job.stop) throw new StopRequested() }
   get runDir(): string { return (this.job.runDir ??= makeRunDir(this.job.toolId)) }
+  /** Join an existing folder (a run session) instead of opening a new logs/<tool>/<stamp> one. */
+  setRunDir(dir: string) { this.job.runDir = ensureDir(dir); this.job.version++ }
 
   setColumns(columns: string[], exportColumns?: string[]) {
     this.job.columns = [...columns]
@@ -120,7 +122,10 @@ export class JobContext {
     try {
       const dir = ensureDir(path.join(LOGS_DIR, this.job.toolId))
       const day = new Date().toLocaleDateString("sv-SE")
-      fs.appendFileSync(path.join(dir, `${this.job.toolId}_${day}.log`), `${nowText()} - ${level} - ${text}\n`, "utf8")
+      const line = `${nowText()} - ${level} - ${text}\n`
+      fs.appendFileSync(path.join(dir, `${this.job.toolId}_${day}.log`), line, "utf8")
+      // The run folder keeps its own copy, so a zip of that folder is the whole story of the run.
+      if (this.job.runDir) fs.appendFileSync(path.join(this.job.runDir, "job.log"), line, "utf8")
     } catch { /* logging must never break a run */ }
   }
 

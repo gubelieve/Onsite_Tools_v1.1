@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Download, FolderOpen, Square } from "lucide-react"
+import { Download, FileArchive, FolderOpen, Square } from "lucide-react"
 import { Badge } from "@astryxdesign/core/Badge"
 import { Button } from "@astryxdesign/core/Button"
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
@@ -94,6 +94,10 @@ export function JobPanel({ jobId, onFinished }: { jobId: string; onFinished?: ()
             clickAction={async () => { await fetch(`/api/jobs/${job.id}/stop`, { method: "POST" }); toast({ body: "Stop requested - sessions finish their current command." }) }} />
         )}
         {job.rows.length > 0 && <Button variant="secondary" size="sm" label="Export CSV" icon={<Download className="h-3.5 w-3.5" />} href={`/api/jobs/${job.id}/export`} />}
+        {(job.runDir || job.logs.length > 0) && (
+          // One file with the results, the run log and every per-device log of this run.
+          <Button variant="secondary" size="sm" label="Zip log files" icon={<FileArchive className="h-3.5 w-3.5" />} href={`/api/jobs/${job.id}/logs`} />
+        )}
       </div>
 
       {job.error && <p className="text-destructive mb-2 text-sm">{job.error}</p>}
