@@ -92,12 +92,36 @@ ode.exe'
 ช่อง **IOS image file** กด **Browse file** เพื่อเปิดหน้าต่างเลือกไฟล์ของ Windows – ได้ path เต็มโดยไม่มีการ copy / upload ไฟล์
 (ใช้ได้เฉพาะ browser บนเครื่องที่ run App; ถ้าเข้าผ่าน `--lan` ให้วาง path เอง) ช่อง Log folder ก็มีปุ่ม Browse folder เช่นกัน
 
+## IOS Upgrade – Session (stage ทั้งหมดอยู่โฟลเดอร์เดียวกัน)
+
+การ upgrade หนึ่งครั้งใช้หลาย stage และแต่ละ stage คือหนึ่ง run – IOS Upgrade จึงรวบไว้เป็น **Session**
+
+* กด Stage แรก = เปิด session ใหม่ → โฟลเดอร์ `logs/upgrade-ios/session_<วันเวลา>/`
+* Stage ถัด ๆ ไป **เขียน log ลงโฟลเดอร์เดิม** และตารางผลลัพธ์จะ **แสดงแถวของทุก stage** ตั้งแต่ stage แรก ไม่ใช่เฉพาะ stage ล่าสุด
+* แถบด้านบนฟอร์มบอกว่า session ไหนเปิดอยู่ เริ่มเมื่อไร ผ่าน stage อะไรมาแล้ว และอยู่ที่ path ไหน
+* กด **Done — start a new session** เมื่อจบงานของเครื่องชุดนั้น → stage ครั้งถัดไปจึงเริ่มโฟลเดอร์ใหม่
+
+ในโฟลเดอร์ session มี `stage_<n>_<ip>_<hostname>.log` (คำสั่ง + output ทุกคำสั่ง), `job.log`, `session.json`
+และ `session_results.csv` ที่รวมผลของทุก stage – สถานะ session เก็บไว้ในไฟล์ จึงไม่หายถ้าปิด/เปิด App ใหม่
+
+## ปุ่ม Zip log files
+
+ทุก run มีปุ่ม **Zip log files** ข้าง Export CSV (เช่น Config Devices) – ดาวน์โหลดไฟล์ `.zip` ไฟล์เดียวที่มี
+
+* `results.csv` – ตารางผลลัพธ์ของ run นั้น
+* `run.log` – log ของ run (พร้อมหัวข้อ tool / เวลาเริ่ม-จบ / สถานะ)
+* ไฟล์ทั้งหมดในโฟลเดอร์ของ run เช่น log ต่ออุปกรณ์ของ Config Devices หรือทั้ง session ของ IOS Upgrade
+
+สะดวกสำหรับแนบส่งงาน – zip เขียนเองใน `src/lib/zip.ts` (ไม่ต้องลง library เพิ่ม, เปิดด้วย Explorer ของ Windows ได้)
+
 ## ข้อมูลอยู่ที่ไหน
 
 | โฟลเดอร์ | เนื้อหา |
 |----------|---------|
 | `data/onsite.db` | Site Inventory, Run History, Settings (SQLite) |
+| `data/sessions.json` | session ที่ยังเปิดอยู่ของแต่ละ tool (ลบได้ = เหมือนกด Done) |
 | `logs/<tool>/<วันเวลา>/` | output ต่ออุปกรณ์ของแต่ละ run + log รายวัน |
+| `logs/upgrade-ios/session_<วันเวลา>/` | ทุก stage ของ upgrade หนึ่งครั้ง (จนกว่าจะกด Done) |
 | `exports/`, `screenshots/`, `uploads/` | ไฟล์ผลลัพธ์, ภาพ capture, ไฟล์ที่ upload |
 
 ทั้งหมดอยู่ใน `.gitignore` เพราะมี IP / config ของลูกค้า – **สำรอง inventory = copy `data/onsite.db`**
@@ -108,7 +132,7 @@ ode.exe'
 npm install          # ติดตั้ง + prisma generate
 npx prisma db push   # สร้าง / update data/onsite.db ตาม prisma/schema.prisma
 npm run dev          # http://127.0.0.1:8090 (hot reload)
-npm test             # vitest: parsers, CSV, inventory, tool registry, SSH driver + IOS upload กับ fake Cisco device, FTP server, SCP
+npm test             # vitest: parsers, CSV, inventory, tool registry, SSH driver + IOS upload กับ fake Cisco device, FTP server, SCP, session, zip
 npm run lint && npm run typecheck
 ```
 
