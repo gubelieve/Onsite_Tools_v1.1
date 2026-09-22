@@ -133,18 +133,38 @@ function toToolDevice(d: Device): ToolDevice {
   }
 }
 
-/** Devices for a tool run, de-duplicated by IP (the same IP may live in several lists). */
-export async function getDevices(list?: string | null, site?: string | null, max = 5000): Promise<ToolDevice[]> {
-  const rows = await prisma.device.findMany({ where: where(list, site), orderBy: [{ list: "asc" }, { ip: "asc" }] })
+/**
+ * The same IP may live in several lists; a run contacts it once. First row wins, so the order the rows
+ * come back in decides which list's details are used. Shared by the run and by the preview shown in the
+ * form, so what the user sees listed is exactly what the run will work on.
+ */
+export function dedupeByIp<T extends { ip: string }>(rows: T[], max = Infinity): T[] {
   const seen = new Set<string>()
-  const out: ToolDevice[] = []
+  const out: T[] = []
   for (const d of rows) {
     if (seen.has(d.ip)) continue
     seen.add(d.ip)
-    out.push(toToolDevice(d))
+    out.push(d)
     if (out.length >= max) break
   }
   return out
+}
+
+/** Devices for a tool run, de-duplicated by IP (the same IP may live in several lists). */
+export async function getDevices(list?: string | null, site?: string | null, max = 5000): Promise<ToolDevice[]> {
+  const rows = await prisma.device.findMany({ where: where(list, site), orderBy: [{ list: "asc" }, { ip: "asc" }] })
+  return dedupeByIp(rows, max).map(toToolDevice)
+}
+
+export interface PreviewDevice { ip: string; hostname: string; site: string; deviceType: string; model: string; description: string; list: string }
+
+/** The devices a run with this selection would contact - for the list shown under the selectors. */
+export async function previewDevices(list?: string | null, site?: string | null, max = 300): Promise<PreviewDevice[]> {
+  const rows = await prisma.device.findMany({
+    where: where(list, site), orderBy: [{ list: "asc" }, { ip: "asc" }],
+    select: { ip: true, hostname: true, site: true, deviceType: true, model: true, description: true, list: true },
+  })
+  return dedupeByIp(rows, max)
 }
 
 export async function countDevices(list?: string | null, site?: string | null): Promise<number> {
