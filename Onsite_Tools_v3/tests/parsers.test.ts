@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { findCol, parseCsv, toCsv } from "@/lib/csv"
-import { mapRows } from "@/lib/inventory"
+import { dedupeByIp, mapRows } from "@/lib/inventory"
 import { detectModel, detectVersion, hostnameFromLogName, imageType, infoFromLogName, parseCdp, parseInterfaces, parseInventory,
   parseLldp, parseSnmpCommunities, parseSnmpUsers, searchConfig, versionFromDescr } from "@/lib/tools/parsers"
 
@@ -66,6 +66,17 @@ describe("site inventory mapping", () => {
     const { devices } = mapRows(["ip_mgmt", "hostname", "zone", "model", "brand"], [{ ip_mgmt: "10.0.251.62", hostname: "SS-SW", zone: "", model: "C9300", brand: "IOS-XE" }], "LAB")
     expect(devices[0]).toMatchObject({ ip: "10.0.251.62", hostname: "SS-SW", site: "LAB", model: "C9300", brand: "IOS-XE" })
     expect(() => mapRows(["Site", "Name"], [{ Site: "x", Name: "y" }])).toThrow(/IP column/)
+  })
+
+  it("the device list shown in a form is the same selection the run gets", () => {
+    // One rule, used by getDevices (what runs) and previewDevices (what the form lists): first row per IP wins.
+    const rows = [
+      { ip: "10.0.0.1", list: "a" }, { ip: "10.0.0.2", list: "a" },
+      { ip: "10.0.0.1", list: "b" }, { ip: "10.0.0.3", list: "b" },
+    ]
+    expect(dedupeByIp(rows)).toEqual([{ ip: "10.0.0.1", list: "a" }, { ip: "10.0.0.2", list: "a" }, { ip: "10.0.0.3", list: "b" }])
+    expect(dedupeByIp(rows, 2)).toEqual([{ ip: "10.0.0.1", list: "a" }, { ip: "10.0.0.2", list: "a" }])
+    expect(dedupeByIp([])).toEqual([])
   })
 })
 
