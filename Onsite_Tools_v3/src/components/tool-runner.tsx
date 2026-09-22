@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { CheckCircle2, Download, FolderOpen, Play } from "lucide-react"
 import { AlertDialog } from "@astryxdesign/core/AlertDialog"
 import { Badge } from "@astryxdesign/core/Badge"
@@ -12,6 +11,7 @@ import { Selector } from "@astryxdesign/core/Selector"
 import { TextArea } from "@astryxdesign/core/TextArea"
 import { TextInput } from "@astryxdesign/core/TextInput"
 import { useToast } from "@astryxdesign/core/Toast"
+import { DevicePreview, type PreviewDevice } from "@/components/device-preview"
 import { JobPanel } from "@/components/job-panel"
 import { Panel } from "@/components/page-header"
 import type { FieldDef, PublicTool, RunDef } from "@/lib/tools/types"
@@ -19,6 +19,7 @@ import type { FieldDef, PublicTool, RunDef } from "@/lib/tools/types"
 type Values = Record<string, unknown>
 interface HistoryItem { id: string; runLabel: string; status: string; created: string; rowCount: number }
 interface SessionInfo { active: boolean; dir: string; name: string; started: string; rowCount: number; runs: string[] }
+interface Options { lists: string[]; sites: string[]; count: number; devices: PreviewDevice[] }
 interface Defaults { username: string; deviceType: string; threads: number; snmpCommunity: string; localIp: string }
 
 const CRED_KEY = "onsite:creds"
@@ -29,13 +30,14 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
   const [values, setValues] = React.useState<Values>(() => Object.fromEntries(tool.fields.map((f) => [
     f.name, f.defaultFrom && defaults[f.defaultFrom] ? defaults[f.defaultFrom] : f.default ?? (f.type === "checkbox" ? false : f.type === "files" ? [] : "")])))
   const [remember, setRemember] = React.useState(false)
-  const [inv, setInv] = React.useState<{ lists: string[]; sites: string[]; count: number } | null>(null)
+  const [inv, setInv] = React.useState<Options | null>(null)
   const [fileInfo, setFileInfo] = React.useState<Record<string, string>>({})
   const [jobId, setJobId] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [history, setHistory] = React.useState<HistoryItem[]>([])
   const [pending, setPending] = React.useState<RunDef | null>(null)
   const usesInventory = tool.fields.some((f) => f.source)
+  const showDevices = tool.fields.some((f) => f.showCount)
   const set = (name: string, v: unknown) => setValues((p) => ({ ...p, [name]: v }))
 
   // Restore what this browser remembered (never sent anywhere else).
@@ -169,17 +171,8 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
         const options = f.source?.type === "inventoryLists" ? [...all, ...(inv?.lists ?? []).map((x) => ({ value: x, label: x }))]
           : f.source?.type === "inventorySites" ? [...all, ...(inv?.sites ?? []).map((x) => ({ value: x, label: x }))]
           : f.options === "deviceTypes" ? deviceTypes.map((x) => ({ value: x, label: x })) : f.options ?? []
-        return (
-          <div>
-            <Selector {...common} options={options} value={String(v ?? "")} onChange={(x) => set(f.name, x)} hasSearch={options.length > 12} />
-            {f.showCount && inv && (
-              <p className="mt-1 text-xs">
-                {inv.count > 0 ? <span><b>{inv.count.toLocaleString()}</b> device(s) selected</span>
-                  : <span className="text-destructive">0 devices — import a list in <Link className="underline" href="/site-inventory">Site Inventory</Link></span>}
-              </p>
-            )}
-          </div>
-        )
+        // The device count and the devices themselves are shown once, under the whole form (DevicePreview).
+        return <Selector {...common} options={options} value={String(v ?? "")} onChange={(x) => set(f.name, x)} hasSearch={options.length > 12} />
       }
       case "file": case "files":
         return (
@@ -226,6 +219,12 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
           {tool.fields.filter(visible).map((f) => (
             <div key={f.name} className={f.width === "half" ? "" : "md:col-span-2"}>{field(f)}</div>
           ))}
+          {showDevices && (
+            <div className="md:col-span-2">
+              {inv ? <DevicePreview devices={inv.devices} count={inv.count} />
+                : <p className="text-muted-foreground text-sm">Loading devices…</p>}
+            </div>
+          )}
         </div>
         <div className="mt-5 flex flex-wrap items-center gap-2">
           {tool.runs.map((r) => (
