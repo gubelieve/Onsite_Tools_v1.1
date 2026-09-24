@@ -7,9 +7,9 @@ const DEVICE_TOOLS = ["config-devices", "upgrade-ios", "client-status-checker", 
   "snmp-inventory", "verify-snmp-user", "dnac-port-assignment"]
 
 describe("tool registry", () => {
-  it("has the 14 tools with unique ids and serialisable metadata", () => {
-    expect(TOOLS).toHaveLength(14)
-    expect(new Set(TOOLS.map((t) => t.id)).size).toBe(14)
+  it("has the 15 tools with unique ids and serialisable metadata", () => {
+    expect(TOOLS).toHaveLength(15)
+    expect(new Set(TOOLS.map((t) => t.id)).size).toBe(15)
     for (const t of TOOLS) {
       expect(new Set(t.fields.map((f) => f.name)).size).toBe(t.fields.length)
       expect(JSON.parse(JSON.stringify(publicTool(t)))).not.toHaveProperty("run")
