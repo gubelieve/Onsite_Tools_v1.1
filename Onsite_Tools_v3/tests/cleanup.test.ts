@@ -12,7 +12,16 @@ const { Stage, parseInactiveFiles } = await import("@/lib/tools/upgrade-ios")
 type Row = Record<string, unknown>
 function fakeCtx() {
   const rows: Row[] = []
-  return { rows, ctx: { addRow: (r: Row) => { rows.push(r); return String(rows.length) }, log: () => undefined, runDir: dir, stopRequested: false } }
+  const ctx = {
+    addRow: (r: Row) => { rows.push(r); return String(rows.length) },
+    // Same contract as JobContext: the key is the row, and a patch merges into it.
+    updateRow: (key: string, patch: Row) => { rows[Number(key) - 1] = { ...rows[Number(key) - 1], ...patch } },
+    progress: () => undefined,
+    log: () => undefined,
+    runDir: dir,
+    stopRequested: false,
+  }
+  return { rows, ctx }
 }
 
 const device = (port: number) => ({ host: `127.0.0.1:${port}`, site: "LAB", deviceType: "cisco_ios", hostname: "", description: "", raw: {} })

@@ -156,6 +156,17 @@ export async function getDevices(list?: string | null, site?: string | null, max
   return dedupeByIp(rows, max).map(toToolDevice)
 }
 
+/**
+ * The tick boxes in the form: when the user ticks only some of the listed devices, the run gets their
+ * addresses. Anything that is not an array means "whatever the list + category selection covers", which is
+ * what every run did before the boxes existed. An empty array means the user cleared every box - none.
+ */
+export function pickDevices<T extends { host: string }>(devices: T[], ips: unknown): T[] {
+  if (!Array.isArray(ips)) return devices
+  const wanted = new Set(ips.map((v) => String(v)))
+  return devices.filter((d) => wanted.has(d.host))
+}
+
 export interface PreviewDevice { ip: string; hostname: string; site: string; deviceType: string; model: string; description: string; list: string }
 
 /** The devices a run with this selection would contact - for the list shown under the selectors. */

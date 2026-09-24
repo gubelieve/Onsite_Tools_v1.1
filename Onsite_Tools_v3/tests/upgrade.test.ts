@@ -15,7 +15,16 @@ fs.writeFileSync(image, payload)
 type Row = Record<string, unknown>
 function fakeCtx() {
   const rows: Row[] = []
-  return { rows, ctx: { addRow: (r: Row) => { rows.push(r); return String(rows.length) }, log: () => undefined, runDir: dir, stopRequested: false } }
+  const ctx = {
+    addRow: (r: Row) => { rows.push(r); return String(rows.length) },
+    // Same contract as JobContext: the key is the row, and a patch merges into it.
+    updateRow: (key: string, patch: Row) => { rows[Number(key) - 1] = { ...rows[Number(key) - 1], ...patch } },
+    progress: () => undefined,
+    log: () => undefined,
+    runDir: dir,
+    stopRequested: false,
+  }
+  return { rows, ctx }
 }
 
 describe("IOS Upgrade stage 1 - built-in FTP, end to end", () => {
@@ -43,9 +52,12 @@ describe("IOS Upgrade stage 1 - built-in FTP, end to end", () => {
     await new Stage(ctx as any, params, device, 1, image, "127.0.0.1", ftp).run()
     await ftp.stop()
 
+    // The transfer is ONE row that keeps being updated - not a new "Uploading…" line every few seconds.
+    expect(rows, JSON.stringify(rows, null, 1)).toHaveLength(1)
     const last = rows.at(-1)!
     expect(last.Status, JSON.stringify(rows, null, 1)).toBe("Completed")
     expect(last.Message).toContain("built-in FTP")
+    expect(last.Progress).toBe("100.0") // the bar in the results table ends full
     expect(last["Bytes Transferred"]).toBe(String(payload.length))
     const name = flashName(image)
     expect(name).toBe("cat9k-lite-iosxe.17.09.05.bin")
@@ -64,6 +76,7 @@ describe("IOS Upgrade stage 1 - built-in FTP, end to end", () => {
     const device = { host: `127.0.0.1:${dev.port}`, site: "LAB", deviceType: "cisco_ios", hostname: "", description: "", raw: {} }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await new Stage(ctx as any, { username: "admin", password: "secret", transferMethod: "ftp-builtin" }, device, 1, image, "127.0.0.1", ftp).run()
+    expect(rows).toHaveLength(1) // the failure replaces the running row instead of piling up
     expect(rows.at(-1)!.Status).toBe("Failed")
     expect(String(rows.at(-1)!.Message)).toMatch(/firewall|reach/i)
   })
