@@ -81,6 +81,9 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
     return () => { alive = false }
   }, [tool.session, tool.id, historyTick])
 
+  // null = every device of the list/category selection; a set = only the devices ticked in the form.
+  const [picked, setPicked] = React.useState<Set<string> | null>(null)
+
   const list = String(values.inventoryList ?? "All"), site = String(values.site ?? "All")
   React.useEffect(() => {
     if (!usesInventory) return
@@ -89,6 +92,7 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
       .then((r) => r.json()).then((d) => {
         if (!alive) return
         setInv(d)
+        setPicked(null) // a different list or category is a different set of devices - start from all of them
         if (list !== "All" && !d.lists.includes(list)) set("inventoryList", "All")
         if (site !== "All" && !d.sites.includes(site)) set("site", "All")
       }).catch(() => undefined)
@@ -111,8 +115,14 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
 
   async function start(run: RunDef) {
     setPending(null)
+    if (showDevices && picked && picked.size === 0) {
+      toast({ body: "No device is ticked in the device list.", type: "error" })
+      return
+    }
     const params: Values = {}
     for (const f of tool.fields) if (visible(f)) params[f.name] = values[f.name]
+    // Only sent when the user narrowed the selection by hand; otherwise the run uses the whole list/category.
+    if (picked) params.deviceIps = [...picked]
     const plain: Values = {}, creds: Values = load<Values>(CRED_KEY, {})
     for (const f of tool.fields) {
       if (["file", "files"].includes(f.type)) continue
@@ -221,7 +231,7 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
           ))}
           {showDevices && (
             <div className="md:col-span-2">
-              {inv ? <DevicePreview devices={inv.devices} count={inv.count} />
+              {inv ? <DevicePreview devices={inv.devices} count={inv.count} selected={picked} onSelect={setPicked} />
                 : <p className="text-muted-foreground text-sm">Loading devices…</p>}
             </div>
           )}
