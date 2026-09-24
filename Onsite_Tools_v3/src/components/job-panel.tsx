@@ -9,11 +9,13 @@ import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout"
 import { ProgressBar } from "@astryxdesign/core/ProgressBar"
 import { TextInput } from "@astryxdesign/core/TextInput"
 import { useToast } from "@astryxdesign/core/Toast"
+import { DiffView } from "@/components/diff-view"
+import { looksLikeDiff } from "@/lib/diff-format"
 import type { JobSnapshot } from "@/lib/jobs"
 
-const OK = /^(success|pass|completed|connected|connected \(arp\)|done|ok)$/i
+const OK = /^(success|pass|completed|connected|connected \(arp\)|done|ok|same)$/i
 const BAD = /^(fail|failed|error|authentication failed\.?|connection error|connection timeout|stopped by user|disconnected|auth failed|timeout|request error|skipped|http [45]\d\d|n\/a$)/i
-const BUSY = /^(running|pending|connecting|collecting|processing|warning|partial|info)/i
+const BUSY = /^(running|pending|connecting|collecting|processing|warning|partial|info|changed|missing in|new in)/i
 const PAGE = 200
 
 type BadgeVariant = "green" | "red" | "yellow" | "neutral" | "info"
@@ -30,6 +32,9 @@ function statusVariant(col: string, value: string): BadgeVariant | null {
 /** Progress is counted in devices for most tools and in bytes for a file transfer - show MB when it is bytes. */
 const amount = (n: number, total: number) => (total > 100_000 ? `${Math.round(n / 1048576).toLocaleString()} MB` : n.toLocaleString())
 
+/** A cell that may be missing, as a string for the diff header (file paths live in export-only columns). */
+const cellText = (v: unknown) => (v === null || v === undefined ? undefined : String(v) || undefined)
+
 const rowTitle = (row: Record<string, unknown>) =>
   String(row["IP Address"] ?? row["Host"] ?? row["IP Management"] ?? row["Checked On (IP)"] ?? row["Device Switch"] ?? row["Hostname"] ?? "")
 
@@ -40,7 +45,7 @@ export function JobPanel({ jobId, onFinished }: { jobId: string; onFinished?: ()
   const [job, setJob] = React.useState<JobSnapshot | null>(null)
   const [filter, setFilter] = React.useState("")
   const [page, setPage] = React.useState(0)
-  const [view, setView] = React.useState<{ title: string; text: string } | null>(null)
+  const [view, setView] = React.useState<{ title: string; text: string; left?: string; right?: string } | null>(null)
   const seen = React.useRef(0)
   const finishedRef = React.useRef(onFinished)
   React.useEffect(() => { finishedRef.current = onFinished }, [onFinished])
@@ -158,7 +163,7 @@ export function JobPanel({ jobId, onFinished }: { jobId: string; onFinished?: ()
                         {variant ? <Badge variant={variant} label={text} /> : long ? (
                           <span className="flex items-center gap-2">
                             <span className="truncate font-mono text-xs">{text.replace(/\s+/g, " ").slice(0, 70)}…</span>
-                            <Button variant="ghost" size="sm" label="View" onClick={() => setView({ title: `${c} — ${rowTitle(r)}`, text })} />
+                            <Button variant="ghost" size="sm" label="View" onClick={() => setView({ title: `${c} — ${rowTitle(r)}`, text, left: cellText(r["Before File"]), right: cellText(r["After File"]) })} />
                           </span>
                         ) : <span className="block truncate">{text}</span>}
                       </td>
@@ -179,10 +184,13 @@ export function JobPanel({ jobId, onFinished }: { jobId: string; onFinished?: ()
       </details>
 
       {view && (
-        <Dialog isOpen onOpenChange={(open) => { if (!open) setView(null) }} purpose="info" width={1000}>
+        // A diff is only readable side by side, and that view needs the room.
+        <Dialog isOpen onOpenChange={(open) => { if (!open) setView(null) }} purpose="info" width={looksLikeDiff(view.text) ? 1500 : 1000}>
           <Layout
             header={<DialogHeader title={view.title} onOpenChange={() => setView(null)} />}
-            content={<LayoutContent><pre className="max-h-[65vh] overflow-auto font-mono text-xs whitespace-pre">{view.text}</pre></LayoutContent>}
+            content={<LayoutContent>{looksLikeDiff(view.text)
+              ? <DiffView text={view.text} leftName={view.left} rightName={view.right} />
+              : <pre className="max-h-[65vh] overflow-auto font-mono text-xs whitespace-pre">{view.text}</pre>}</LayoutContent>}
             footer={
               <LayoutFooter hasDivider>
                 <div className="flex justify-end gap-2">
