@@ -3,7 +3,7 @@
 import * as React from "react"
 import { usePathname } from "next/navigation"
 import {
-  Activity, Cable, Camera, Cloud, FileText, Globe, History, LayoutDashboard, ListChecks, Package, Search, Settings,
+  Activity, Cable, Camera, Cloud, FileText, GitCompare, Globe, History, LayoutDashboard, ListChecks, Package, Search, Settings,
   Share2, Shield, ShieldCheck, Terminal, Upload, Wrench, type LucideIcon,
 } from "lucide-react"
 import { SideNav, SideNavHeading, SideNavSection, SideNavItem } from "@astryxdesign/core/SideNav"
@@ -13,6 +13,7 @@ export interface MenuItem { href: string; title: string; group: string; icon: st
 const ICONS: Record<string, LucideIcon> = {
   terminal: Terminal, upload: Upload, search: Search, package: Package, share: Share2, activity: Activity, shield: Shield,
   "file-text": FileText, "shield-check": ShieldCheck, cloud: Cloud, cable: Cable, globe: Globe, camera: Camera,
+  "git-compare": GitCompare,
 }
 
 export function AppSidebar({ tools, deviceCount }: { tools: MenuItem[]; deviceCount: number }) {

@@ -65,13 +65,13 @@
 * มีช่อง filter เมื่อเกิน 8 ตัว, กด **Hide devices / Show devices** ได้ (จำค่าไว้ใน browser)
 * รายการยาวสุด 300 แถว แต่ตัวเลข "N device(s) will be used" เป็นจำนวนจริงเสมอ
 
-## เครื่องมือ (14)
+## เครื่องมือ (15)
 
 | กลุ่ม | เครื่องมือ | แหล่งอุปกรณ์ |
 |-------|-----------|---------------|
 | SSH Tools | Config Devices (Verify / Config mode, คอลัมน์ต่อคำสั่ง, `command` ต่ออุปกรณ์), IOS Upgrade (6 stage + cleanup flash), Client Status Checker | Site Inventory |
 | Inventory | Get Inventory, CDP Inventory, LLDP Inventory, SNMP Inventory, Verify SNMP User | Site Inventory |
-| Log Analysis | Interface Report, Security Health Check | โฟลเดอร์ log หรือ upload |
+| Log Analysis | Interface Report, **Compare Configuration**, Security Health Check | โฟลเดอร์ log หรือ upload |
 | Catalyst Center / SD-WAN | DNAC REST API, DNAC Port Assignment, SD-WAN Site List, Capture DNAC | CSV เฉพาะงาน / Site Inventory (Port Assignment) |
 
 Device type `autodetect` ลองคำสั่งปิด paging ของ Cisco → Huawei → HPE Comware → Juniper → ProCurve ตามลำดับ
@@ -134,6 +134,27 @@ ode.exe'
 * 2 ปุ่มนี้ **ไม่ต้องเลือก IOS image file** (ทำงานกับของที่อยู่บน flash อยู่แล้ว) กดได้เลยแม้ช่อง image ว่าง
 * อุปกรณ์ที่เป็น bundle mode / IOS เก่าจะไม่มีคำสั่งนี้ – เครื่องมือจะบอกตรง ๆ ว่าต้องใช้ `delete flash:<file>` แทน
 * ทั้ง log และรายชื่อไฟล์ถูกเก็บลงโฟลเดอร์ session เดียวกับ stage อื่น ๆ
+
+## Compare Configuration – เทียบ Before / After
+
+ใช้คู่กับ **Config Devices**: run เก็บ config ไว้ก่อนเข้างานหนึ่งรอบ เข้างานเสร็จ run เก็บอีกรอบ แล้วเอา 2 โฟลเดอร์มาเทียบกัน
+
+1. **Before: log folder** / **After: log folder** – กด Browse เลือกโฟลเดอร์ `logs/config-devices/<วันเวลา>` ของแต่ละรอบ
+2. จับคู่อุปกรณ์จาก **IP ในชื่อไฟล์** (ถ้าไม่มี IP ใช้ hostname) – ไฟล์ `job.log` ของ run ถูกข้ามให้อัตโนมัติ
+3. ผลลัพธ์ต่ออุปกรณ์: `Same` / `Changed` (+กี่บรรทัด −กี่บรรทัด) / `Missing in After` / `New in After`
+4. กด **View** เปิดหน้าต่าง **เทียบ 2 ฝั่งแบบ MobaDiff / WinMerge** – before ซ้าย after ขวา มีเลขบรรทัดทั้งสองข้าง
+   บรรทัดที่หายไป**ชมพู** บรรทัดที่เพิ่มมา**เขียว** ฝั่งที่ไม่มีคู่เป็นช่องเทา เลื่อนพร้อมกันทั้งสองฝั่ง
+   ติ๊ก **Hide unchanged lines** เพื่อดูเฉพาะบรรทัดที่เปลี่ยน
+
+| ช่อง | ใช้ทำอะไร |
+|------|-----------|
+| **Ignore lines matching** | regex บรรทัดละ 1 อัน สำหรับบรรทัดที่เปลี่ยนเองทุก run – ค่าเริ่มต้นตัด `Building configuration`, `Current configuration :`, `Last configuration change`, `ntp clock-period`, `uptime is`, `Time source is` ออกให้แล้ว (ลบให้ว่างถ้าอยากเทียบทุกบรรทัดจริง ๆ) |
+| **Context lines** | จำนวนบรรทัดรอบ ๆ จุดที่เปลี่ยน (ค่าเริ่มต้น 3) – ส่วนที่ถูกข้ามจะมีแถบ `⋯ N unchanged line(s) ⋯` คั่นให้เห็น |
+| **Keep the whole file** | เก็บทุกบรรทัดของทั้ง 2 ไฟล์ เพื่อให้เลื่อนดูได้ตั้งแต่ต้นจนจบเหมือน MobaDiff (ไฟล์ใหญ่จะกินพื้นที่มากกว่า) |
+| **Show only devices that changed** | ซ่อนตัวที่เหมือนเดิม เวลามีอุปกรณ์เยอะ |
+
+ไฟล์ที่ได้: `<hostname>-<ip>.diff` ต่ออุปกรณ์ + `compare_<วันเวลา>.diff` รวมทุกตัว (เป็นปุ่มดาวน์โหลด) อยู่ใน `logs/compare-config/<วันเวลา>/`
+กด **Zip log files** ได้ทั้งชุดเหมือนเครื่องมืออื่น
 
 ## ปุ่ม Zip log files
 
