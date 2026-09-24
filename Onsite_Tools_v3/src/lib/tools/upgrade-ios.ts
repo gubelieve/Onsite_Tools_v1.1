@@ -20,13 +20,21 @@ import { INVENTORY_FIELDS, num, str, type Params, type ToolDef } from "./types"
 
 const STAGES = ["Verify Environment", "Upload IOS", "Verify MD5", "Install Image", "Check Status", "Verify Services",
   "List Inactive Images", "Remove Inactive Images"]
-const COLUMNS = ["Stage", "Host", "Hostname", "Status", "Message", "Bytes Transferred", "Output", "Timestamp"]
+// "Progress" holds a percentage; the results table draws it as a bar (see job-panel).
+const COLUMNS = ["Stage", "Host", "Hostname", "Status", "Progress", "Message", "Bytes Transferred", "Output", "Timestamp"]
 
 /** One row per file to be deleted, up to this many - the rest are summarised. */
 const MAX_FILE_ROWS = 60
 /** What "install remove inactive" stops at when it wants an answer. */
 const QUESTION = /Do you want to remove the above files\?\s*\[y\/n\]\s*$/i
-const mb = (bytes: number) => (bytes / 1048576).toFixed(1)
+const mb = (bytes: number) => (bytes / 1048576).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+/** 95s -> "1m 35s", 4000s -> "1h 6m" - how long the transfer still has to go. */
+const hms2 = (secs: number) => {
+  const s = Math.round(secs)
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`
+  return `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`
+}
 
 /** The two cleanup runs are not part of the 0-5 sequence, so they are named rather than numbered. */
 export const stageLabel = (stage: number) =>
@@ -94,14 +102,44 @@ export function parseInactiveFiles(out: string): string[] {
 /** One stage for one device. Exported for the end-to-end test against the fake device. */
 export class Stage {
   hostname: string
+  /** The row the transfer keeps updating, so progress is one moving bar and not a new line every few seconds. */
+  private transferRow: string | null = null
+  private startedAt = 0
+
   constructor(private ctx: JobContext, private params: Params, private device: ToolDevice, private stage: number,
-              private iosFile: string, private ftpIp: string, private ftp: SingleFileFtpServer | null = null) {
+              private iosFile: string, private ftpIp: string, private ftp: SingleFileFtpServer | null = null,
+              private onBytes?: (host: string, sent: number) => void) {
     this.hostname = device.hostname || "Unknown"
   }
 
+  private row(status: string, message: string, bytes = "0", output = "", progress = "") {
+    return { Stage: stageLabel(this.stage), Host: this.device.host, Hostname: this.hostname, Status: status, Message: message,
+      "Bytes Transferred": bytes, Progress: progress, Output: output, Timestamp: hms() }
+  }
+
   private emit(status: string, message: string, bytes = "0", output = "") {
-    this.ctx.addRow({ Stage: stageLabel(this.stage), Host: this.device.host, Hostname: this.hostname, Status: status, Message: message,
-      "Bytes Transferred": bytes, Output: output, Timestamp: hms() })
+    this.ctx.addRow(this.row(status, message, bytes, output))
+  }
+
+  /**
+   * The transfer's own row: written once, then updated in place. `percent` feeds the bar in the results table
+   * and the job's overall progress; the message carries size, speed and what is left.
+   */
+  private transfer(status: string, message: string, sent = 0, size = 0, output = "") {
+    const percent = size > 0 ? Math.min(100, (sent / size) * 100) : 0
+    const row = this.row(status, message, String(sent), output, size > 0 ? percent.toFixed(1) : "")
+    if (this.transferRow) this.ctx.updateRow(this.transferRow, row)
+    else this.transferRow = this.ctx.addRow(row)
+    this.onBytes?.(this.device.host, sent)
+  }
+
+  /** "412.5 / 1,199.8 MB (34.4%) · 5.8 MB/s · 2m 16s left" - everything the person watching wants to know. */
+  private progressText(sent: number, size: number): string {
+    const secs = (Date.now() - this.startedAt) / 1000
+    const rate = secs > 0.5 ? sent / secs : 0
+    const left = rate > 0 && sent < size ? (size - sent) / rate : 0
+    return `${mb(sent)} / ${mb(size)} MB (${size ? ((sent / size) * 100).toFixed(1) : "0.0"}%)` +
+      (rate ? ` · ${mb(rate)} MB/s` : "") + (left ? ` · ${hms2(left)} left` : "")
   }
 
   private logCmd(command: string, output: string, status = "Completed") {
@@ -173,19 +211,19 @@ export class Stage {
   private async upload(s: SshSession) {
     const filename = flashName(this.iosFile)
     const size = fs.statSync(this.iosFile).size
+    this.startedAt = Date.now()
     if (str(this.params.transferMethod, "ftp-builtin") === "scp") return this.uploadScp(s, filename, size)
     if (this.ftp) return this.uploadBuiltinFtp(s, filename, size)
     const cmd = `copy ftp://${this.ftpIp}/${baseName(this.iosFile)} flash:${filename}`
-    this.emit("Running", `Starting FTP upload of ${filename} from ${this.ftpIp} (${size.toLocaleString()} bytes)`)
+    this.transfer("Running", `FTP upload from ${this.ftpIp} -> ${filename}`, 0, size)
     let out = await s.sendTiming(cmd)
     if (out.includes("Destination filename")) out += await s.sendTiming(filename)
-    if (/Bad filename|Error parsing filename/.test(out)) { this.emit("Failed", `Filename error: ${filename}`, "0", out); return }
+    if (/Bad filename|Error parsing filename/.test(out)) { this.transfer("Failed", `Filename error: ${filename}`, 0, size, out); return }
     // The copy keeps the session busy, so progress is read over a second session.
-    const started = Date.now()
-    let transferred = 0, last = -1, unchanged = 0, lastMsg = 0
+    let transferred = 0, last = -1, unchanged = 0
     const pattern = new RegExp(`\\d+\\s+-\\w+-?\\s+(\\d+)\\s+.*${filename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i")
-    while (Date.now() - started < 50 * 60 * 1000) {
-      if (this.ctx.stopRequested) { this.emit("Failed", "Stopped by user during upload", transferred.toLocaleString(), out); return }
+    while (Date.now() - this.startedAt < 50 * 60 * 1000) {
+      if (this.ctx.stopRequested) { this.transfer("Failed", "Stopped by user during upload", transferred, size, out); return }
       await new Promise((r) => setTimeout(r, 5000))
       let dir = ""
       try {
@@ -197,17 +235,15 @@ export class Stage {
         transferred = Number(m[1])
         unchanged = transferred === last ? unchanged + 1 : 0
         last = transferred
+        // The bar moves on every reading - the device's own file size is the only progress this mode has.
+        this.transfer("Running", `Uploading: ${this.progressText(transferred, size)}`, transferred, size)
         if (transferred >= size || unchanged >= 3) break
-        if (Date.now() - lastMsg > 15000) {
-          this.emit("Running", `Uploading ${filename}: ${transferred.toLocaleString()}/${size.toLocaleString()} bytes (${Math.min(100, Math.round((transferred / size) * 100))}%)`, transferred.toLocaleString(), dir)
-          lastMsg = Date.now()
-        }
       } else if (++unchanged >= 6) break
     }
     this.logCmd(cmd, out)
-    if (transferred >= size) this.emit("Completed", `IOS uploaded successfully (${size.toLocaleString()} bytes)`, size.toLocaleString(), out)
-    else if (transferred > 0) this.emit("Completed", `Transfer stopped growing at ${transferred.toLocaleString()}/${size.toLocaleString()} bytes - verify with Stage 2`, transferred.toLocaleString(), out)
-    else this.emit("Failed", "File not found on flash after the copy command", "0", out)
+    if (transferred >= size) this.transfer("Completed", `IOS uploaded successfully (${mb(size)} MB in ${hms2((Date.now() - this.startedAt) / 1000)})`, size, size, out)
+    else if (transferred > 0) this.transfer("Completed", `Transfer stopped growing at ${this.progressText(transferred, size)} - verify with Stage 2`, transferred, size, out)
+    else this.transfer("Failed", "File not found on flash after the copy command", 0, size, out)
   }
 
   /** Built-in FTP: the app serves the image itself, so progress comes straight from the server's byte counter. */
@@ -215,15 +251,16 @@ export class Stage {
     const ftp = this.ftp!
     const cmd = `copy ftp://${ftp.user}:${ftp.password}@${this.ftpIp}/${ftp.fileName} flash:${filename}`
     const shown = cmd.replace(ftp.password, "****")
-    this.emit("Running", `Built-in FTP server ${this.ftpIp}:${ftp.port} -> ${filename} (${size.toLocaleString()} bytes)`)
+    this.transfer("Running", `Built-in FTP ${this.ftpIp}:${ftp.port} -> ${filename}`, 0, size)
     let out = await s.sendTiming(cmd, 2000, 20000)
     if (/Destination filename/i.test(out)) out += await s.sendTiming(filename, 2000, 20000)
     if (/over ?write|\[confirm\]/i.test(out)) out += await s.sendTiming("", 2000, 20000)
     const me = this.device.host.split(":")[0]
+    // The bar is fed by the FTP server's own byte counter, so it moves every second while data flows.
     const ticker = setInterval(() => {
       const t = ftp.transfers.get(me) ?? [...ftp.transfers.values()].find((x) => !x.done)
-      if (t && !t.done) this.emit("Running", `Uploading ${filename}: ${t.sent.toLocaleString()}/${size.toLocaleString()} bytes (${Math.round((t.sent / size) * 100)}%)`, t.sent.toLocaleString())
-    }, 15000)
+      if (t && !t.done) this.transfer("Running", `Uploading: ${this.progressText(t.sent, size)}`, t.sent, size)
+    }, 1000)
     try {
       // Small images finish while the prompts are still being answered - only wait when the copy is still running.
       if (!s.endsWithPrompt(out)) out += await s.waitForPrompt(60 * 60)
@@ -232,10 +269,11 @@ export class Stage {
     this.logCmd(shown, out)
     const copied = /(\d+) bytes copied/.exec(out)
     if (copied || /\[OK/.test(out)) {
-      this.emit("Completed", `IOS uploaded via built-in FTP (${Number(copied?.[1] ?? size).toLocaleString()} bytes)`, String(copied?.[1] ?? size), out)
+      const sent = Number(copied?.[1] ?? size)
+      this.transfer("Completed", `IOS uploaded via built-in FTP (${mb(sent)} MB in ${hms2((Date.now() - this.startedAt) / 1000)})`, sent, size, out)
       return
     }
-    this.emit("Failed", `FTP copy failed: ${await explainFtpFailure(ftp, out, this.device.host, this.ftpIp)}`, "0", out)
+    this.transfer("Failed", `FTP copy failed: ${await explainFtpFailure(ftp, out, this.device.host, this.ftpIp)}`, 0, size, out)
   }
 
   /** SCP push: the PC connects to the device, so nothing has to listen on the PC. */
@@ -246,7 +284,7 @@ export class Stage {
       out += await s.sendConfig(["ip scp server enable"])
       this.emit("Running", "Enabled 'ip scp server enable' on the device (it was off). Not saved to startup-config.", "0", out)
     }
-    this.emit("Running", `SCP push of ${filename} (${size.toLocaleString()} bytes) - IOS SCP is slower than FTP`)
+    this.transfer("Running", `SCP push -> ${filename} (IOS SCP is slower than FTP)`, 0, size)
     const [host, port] = /^[^:]+:\d+$/.test(this.device.host) ? this.device.host.split(":") : [this.device.host, ""]
     let last = 0
     try {
@@ -254,16 +292,16 @@ export class Stage {
         host, port: Number(port) || 22, username: str(this.params.username), password: str(this.params.password),
         localFile: this.iosFile, remotePath: `flash:${filename}`, shouldStop: () => this.ctx.stopRequested,
         onProgress: (sent) => {
-          if (Date.now() - last < 15000) return
+          if (Date.now() - last < 1000) return // one update a second is enough for a bar
           last = Date.now()
-          this.emit("Running", `Uploading ${filename}: ${sent.toLocaleString()}/${size.toLocaleString()} bytes (${Math.round((sent / size) * 100)}%)`, sent.toLocaleString())
+          this.transfer("Running", `Uploading: ${this.progressText(sent, size)}`, sent, size)
         },
       })
       this.logCmd(`scp ${baseName(this.iosFile)} -> flash:${filename}`, out + "\nSCP transfer completed")
-      this.emit("Completed", `IOS uploaded via SCP (${size.toLocaleString()} bytes) - verify with Stage 2`, size.toLocaleString(), out)
+      this.transfer("Completed", `IOS uploaded via SCP (${mb(size)} MB in ${hms2((Date.now() - this.startedAt) / 1000)}) - verify with Stage 2`, size, size, out)
     } catch (e) {
       this.logCmd(`scp -> flash:${filename}`, `${out}\n${(e as Error).message}`, "Failed")
-      this.emit("Failed", `SCP failed: ${(e as Error).message}`, "0", out)
+      this.transfer("Failed", `SCP failed: ${(e as Error).message}`, 0, size, out)
     }
   }
 
@@ -439,8 +477,20 @@ export const upgradeIos: ToolDef = {
       try { await ftp.start(Number(process.env.ONSITE_FTP_PORT) || 21) } catch (e) { ctx.error((e as Error).message); return }
       ctx.info(`Built-in FTP server started on ${ftpIp}:${ftp.port} for this run (read-only, one-time password, serves only ${ftp.fileName}).`)
     }
+    // Stage 1 measures its progress in bytes, not in devices: the bar at the top of the results is the
+    // transfer itself, which is the only thing happening for the next minutes or hours.
+    const sentBy = new Map<string, number>()
+    let onBytes: ((host: string, sent: number) => void) | undefined
+    if (stage === 1) {
+      ctx.progress(0, fs.statSync(iosFile).size * devices.length)
+      onBytes = (host, sent) => {
+        sentBy.set(host, sent)
+        ctx.progress([...sentBy.values()].reduce((a, b) => a + b, 0))
+      }
+    }
     try {
-      await ctx.mapParallel(devices, (d) => new Stage(ctx, params, d, stage, iosFile, ftpIp, ftp).run(), num(params.threads, 3))
+      await ctx.mapParallel(devices, (d) => new Stage(ctx, params, d, stage, iosFile, ftpIp, ftp, onBytes).run(),
+        num(params.threads, 3), stage !== 1)
     } finally {
       if (ftp) { await ftp.stop(); ctx.log("Built-in FTP server stopped") }
     }

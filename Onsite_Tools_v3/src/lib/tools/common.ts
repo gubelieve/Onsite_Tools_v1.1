@@ -2,7 +2,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import type { JobContext } from "../jobs"
-import { getDevices, countDevices, type ToolDevice } from "../inventory"
+import { getDevices, countDevices, pickDevices, type ToolDevice } from "../inventory"
 import { SshSession, classifyError } from "../net/ssh"
 import { getSettings } from "../settings"
 import { safeName, stamp } from "../paths"
@@ -12,11 +12,16 @@ export { classifyError }
 
 /** Resolve the Site Inventory selection of a run, or explain what is missing. */
 export async function devicesFor(ctx: JobContext, params: Params): Promise<ToolDevice[]> {
-  const devices = await getDevices(str(params.inventoryList, "All"), str(params.site, "All"))
-  if (!devices.length) {
+  const all = await getDevices(str(params.inventoryList, "All"), str(params.site, "All"))
+  if (!all.length) {
     if ((await countDevices()) === 0) ctx.error("Site Inventory is empty. Open the 'Site Inventory' menu and import a device list first.")
     else ctx.warn("No devices in Site Inventory match the selected device list / device category.")
+    return all
   }
+  // The tick boxes under the selectors can narrow this down to a few devices.
+  const devices = pickDevices(all, params.deviceIps)
+  if (!devices.length) ctx.error("No device is ticked in the device list. Tick at least one device and run again.")
+  else if (devices.length < all.length) ctx.info(`Running on ${devices.length} of the ${all.length} device(s) in this selection (ticked in the form).`)
   return devices
 }
 
