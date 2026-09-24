@@ -1,4 +1,5 @@
 /** Tool registry - the single list of tools (menu, pages and API all read from here). */
+import { compareConfig } from "./compare-config"
 import { captureDnac, dnacPortAssignment, dnacRestApi, sdWanApi } from "./controller-tools"
 import { interfaceReport, securityHealthCheck, snmpInventory } from "./offline-tools"
 import { cdpInventory, clientStatusChecker, configDevices, getInventory, lldpInventory, verifySnmpUser } from "./ssh-tools"
@@ -8,7 +9,7 @@ import type { PublicTool, ToolDef } from "./types"
 export const TOOLS: ToolDef[] = [
   configDevices, upgradeIos, clientStatusChecker,
   getInventory, cdpInventory, lldpInventory, snmpInventory, verifySnmpUser,
-  interfaceReport, securityHealthCheck,
+  interfaceReport, compareConfig, securityHealthCheck,
   dnacRestApi, dnacPortAssignment, sdWanApi, captureDnac,
 ].sort((a, b) => a.order - b.order)
 
