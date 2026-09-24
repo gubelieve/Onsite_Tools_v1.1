@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { findCol, parseCsv, toCsv } from "@/lib/csv"
-import { dedupeByIp, mapRows } from "@/lib/inventory"
+import { dedupeByIp, mapRows, pickDevices } from "@/lib/inventory"
 import { detectModel, detectVersion, hostnameFromLogName, imageType, infoFromLogName, parseCdp, parseInterfaces, parseInventory,
   parseLldp, parseSnmpCommunities, parseSnmpUsers, searchConfig, versionFromDescr } from "@/lib/tools/parsers"
 
@@ -77,6 +77,18 @@ describe("site inventory mapping", () => {
     expect(dedupeByIp(rows)).toEqual([{ ip: "10.0.0.1", list: "a" }, { ip: "10.0.0.2", list: "a" }, { ip: "10.0.0.3", list: "b" }])
     expect(dedupeByIp(rows, 2)).toEqual([{ ip: "10.0.0.1", list: "a" }, { ip: "10.0.0.2", list: "a" }])
     expect(dedupeByIp([])).toEqual([])
+  })
+
+  it("the tick boxes narrow a run to the devices that were ticked", () => {
+    const devices = [{ host: "10.0.0.1" }, { host: "10.0.0.2" }, { host: "10.0.0.3:2222" }]
+    // No list of addresses at all (older runs, or nothing ticked by hand) = the whole selection, as before.
+    expect(pickDevices(devices, undefined)).toEqual(devices)
+    expect(pickDevices(devices, "10.0.0.1")).toEqual(devices)
+    expect(pickDevices(devices, ["10.0.0.2", "10.0.0.3:2222"])).toEqual([{ host: "10.0.0.2" }, { host: "10.0.0.3:2222" }])
+    // An address that is no longer in the selection simply does not match - it never widens the run.
+    expect(pickDevices(devices, ["10.9.9.9"])).toEqual([])
+    // Every box cleared means none, and must not quietly fall back to all.
+    expect(pickDevices(devices, [])).toEqual([])
   })
 })
 

@@ -27,6 +27,9 @@ function statusVariant(col: string, value: string): BadgeVariant | null {
   return null
 }
 
+/** Progress is counted in devices for most tools and in bytes for a file transfer - show MB when it is bytes. */
+const amount = (n: number, total: number) => (total > 100_000 ? `${Math.round(n / 1048576).toLocaleString()} MB` : n.toLocaleString())
+
 const rowTitle = (row: Record<string, unknown>) =>
   String(row["IP Address"] ?? row["Host"] ?? row["IP Management"] ?? row["Checked On (IP)"] ?? row["Device Switch"] ?? row["Hostname"] ?? "")
 
@@ -87,7 +90,9 @@ export function JobPanel({ jobId, onFinished }: { jobId: string; onFinished?: ()
           <ProgressBar label="Progress" isLabelHidden value={pct} max={100} isIndeterminate={running && !job.progress.total}
             variant={job.status === "error" || job.status === "stopped" ? "error" : job.status === "done" ? "success" : "accent"} />
         </div>
-        {job.progress.total > 0 && <span className="text-muted-foreground text-xs tabular-nums">{job.progress.done}/{job.progress.total} ({pct}%)</span>}
+        {job.progress.total > 0 && (
+          <span className="text-muted-foreground text-xs tabular-nums">{amount(job.progress.done, job.progress.total)}/{amount(job.progress.total, job.progress.total)} ({pct}%)</span>
+        )}
         {job.summary && <span className="text-primary text-sm font-semibold">{job.summary}</span>}
         {running && (
           <Button variant="destructive" size="sm" label="Stop" icon={<Square className="h-3.5 w-3.5" />}
@@ -133,6 +138,19 @@ export function JobPanel({ jobId, onFinished }: { jobId: string; onFinished?: ()
                 <tr key={r._key} className="hover:bg-muted/50 border-b last:border-0">
                   {job.columns.map((c) => {
                     const text = r[c] === null || r[c] === undefined ? "" : String(r[c])
+                    // A "Progress" column holds a percentage - a moving bar says more than a number.
+                    if (/^progress$/i.test(c) && text !== "" && Number.isFinite(Number(text))) {
+                      const pct = Math.max(0, Math.min(100, Number(text)))
+                      return (
+                        <td key={c} className="px-3 py-1.5 align-middle whitespace-nowrap">
+                          <span className="flex items-center gap-2">
+                            <span className="w-28"><ProgressBar label={`${pct}%`} isLabelHidden value={pct} max={100}
+                              variant={pct >= 100 ? "success" : "accent"} /></span>
+                            <span className="text-muted-foreground tabular-nums text-xs">{pct.toFixed(0)}%</span>
+                          </span>
+                        </td>
+                      )
+                    }
                     const long = text.length > 80 || text.includes("\n")
                     const variant = long ? null : statusVariant(c, text)
                     return (

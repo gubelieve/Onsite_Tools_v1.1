@@ -59,6 +59,9 @@
 (IP Address, Hostname, Device Category, Device type, Model, **Description**, Device list) เปลี่ยน list หรือ category แล้วตารางอัปเดตทันที
 
 * เป็น **ชุดเดียวกับที่ run จริง** – ลำดับและการตัด IP ซ้ำใช้โค้ดเส้นเดียวกัน (`dedupeByIp`) จึงไม่มีกรณี "เห็นอย่างหนึ่ง แต่ยิงอีกอย่างหนึ่ง"
+* **ติ๊ก checkbox หน้าแต่ละแถวเพื่อเลือก run แค่บางตัว** – ค่าเริ่มต้นติ๊กครบทุกตัว, ติ๊กหัวตารางเพื่อเลือก/ยกเลิกทั้งหมด
+  (ถ้าพิมพ์ filter อยู่ จะเลือกเฉพาะแถวที่เห็น), กด **Use all** เพื่อกลับไปใช้ทั้งหมด หัวตารางจะบอก `3 of 10 device(s) ticked`
+  ถ้าไม่ติ๊กเลยแล้วกด Run จะเตือนและไม่ยิงอะไรออกไป และการเปลี่ยน list/category จะรีเซ็ตกลับเป็นติ๊กครบเสมอ
 * มีช่อง filter เมื่อเกิน 8 ตัว, กด **Hide devices / Show devices** ได้ (จำค่าไว้ใน browser)
 * รายการยาวสุด 300 แถว แต่ตัวเลข "N device(s) will be used" เป็นจำนวนจริงเสมอ
 
@@ -81,6 +84,10 @@ Device type `autodetect` ลองคำสั่งปิด paging ของ C
 | **Built-in FTP server** (ค่าเริ่มต้น) | ไม่ต้องเปิด FTP server เอง – App เปิด port 21 ให้เฉพาะช่วงที่ Stage 1 ทำงาน แล้วปิดเอง | read-only, ให้ดาวน์โหลดได้เฉพาะไฟล์ image ที่เลือก, user/password สุ่มใหม่ทุก run และไม่แสดงในผลลัพธ์ / log ครั้งแรก Windows จะถาม firewall ของ Node.js ให้กด Allow |
 | **SCP push** | ไม่มีอะไร listen บนเครื่องนี้ – App ต่อ SSH เข้าไปส่งไฟล์เอง | ถ้าอุปกรณ์ยังไม่มี `ip scp server enable` App จะใส่ให้ (ไม่ได้ `write memory`), user ต้องเป็น privilege 15, SCP ของ IOS ช้ากว่า FTP |
 | External FTP server | FTP server ที่เปิดไว้อยู่แล้ว (FileZilla, IIS) | พฤติกรรมเดิม |
+
+**ระหว่างโอนไฟล์ = หลอดโหลด ไม่ใช่ log ไหลเรื่อย ๆ** – Stage 1 ใช้ **1 แถวต่ออุปกรณ์** แล้วอัปเดตแถวเดิมทุกวินาที
+ในคอลัมน์ **Progress** เป็นหลอด (เต็มแล้วเปลี่ยนเป็นสีเขียว) ส่วน Message บอก `412.5 / 1,199.8 MB (34.4%) · 5.8 MB/s · 2m 16s left`
+และหลอดด้านบนสุดของผลลัพธ์นับเป็น **MB ที่ส่งไปแล้ว** (ไม่ใช่จำนวนอุปกรณ์) เฉพาะ Stage 1 – ใช้ได้ทั้ง 3 transfer method
 
 > **Windows Firewall:** built-in FTP ต้องให้อุปกรณ์ "ต่อเข้ามา" ที่เครื่องนี้ ถ้าเคยกด Cancel ตอน Windows ถาม
 > Windows จะสร้าง rule **Block ขาเข้า** ของ `node.exe` ค้างไว้ และ copy จะล้มเหลวทุกครั้ง (Block ชนะ Allow เสมอ
