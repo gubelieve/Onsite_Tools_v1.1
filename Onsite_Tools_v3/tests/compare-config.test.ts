@@ -3,7 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
 import { looksLikeDiff, parseUnified } from "@/lib/diff-format"
-import { anchorsOf, byCommand, compareConfig, compileIgnore, DEFAULT_IGNORE, DEFAULT_SKIP, diffLines, isSkipped, normalize, scanFolder, splitSections, unifiedDiff } from "@/lib/tools/compare-config"
+import { anchorsOf, byCommand, compareConfig, compileIgnore, DEFAULT_IGNORE, DEFAULT_SKIP, diffLines, isSkipped, maskSecrets, normalize, scanFolder, splitSections, unifiedDiff } from "@/lib/tools/compare-config"
 
 const lines = (s: string) => s.trim().split("\n")
 
@@ -307,5 +307,50 @@ describe("big files", () => {
     const ops = diffLines(a, b)
     expect(ops.filter((o) => o.type === "-")).toHaveLength(4000)
     expect(ops.filter((o) => o.type === "+")).toHaveLength(4000)
+  })
+})
+
+describe("masking secrets", () => {
+  it("hides the value but keeps the line, whatever kind of secret it is", () => {
+    const cases: [string, string][] = [
+      ["enable secret 9 $9$abc123XYZ", "enable secret 9 ********"],
+      ["enable password 7 05080F1C22", "enable password 7 ********"],
+      [" username admin secret 9 $9$verylonghash", " username admin secret 9 ********"],
+      [" password 7 070C285F4D06", " password 7 ********"],
+      ["snmp-server community kc$$nMpR0 RO 13", "snmp-server community ******** RO 13"],
+      ["tacacs-server key 7 10450A0A251401061C456E", "tacacs-server key 7 ********"],
+      [" key 7 00071A150754", " key 7 ********"],
+      [" key-string mySharedKey", " key-string ********"],
+      [" pre-shared-key 6 abcdef", " pre-shared-key 6 ********"],
+      // Straight out of the SML backups - IOS puts the secret in the middle of the line, not at the start.
+      [" username network privilege 15 secret 9 $9$KHSeMHoQ2Gsox.$RntVXbIngiL7", " username network privilege 15 secret 9 ********"],
+      ["  client 10.8.72.23 server-key 7 132E23302B2D2D1E", "  client 10.8.72.23 server-key 7 ********"],
+      [" ip ospf message-digest-key 1 md5 7 070C285F4D06", " ip ospf message-digest-key 1 md5 7 ********"],
+      [" snmp-server user adm grp v3 auth sha MyAuthPass priv aes 128 MyPrivPass", " snmp-server user adm grp v3 auth sha ******** priv aes 128 ********"],
+    ]
+    for (const [line, expected] of cases) expect(maskSecrets(line), line).toBe(expected)
+  })
+
+  it("leaves ordinary configuration alone", () => {
+    for (const line of ["hostname SW-CORE", " ip address 10.0.0.1 255.255.255.0", "logging host 10.1.1.1",
+      " description UPLINK to CORE", "snmp-server location SML-Core-C9300-FL5-01", " key chain OSPF-KEYS",
+      " crypto key generate rsa modulus 2048"]) {
+      expect(maskSecrets(line), line).toBe(line)
+    }
+  })
+
+  it("masks the printed diff, not what is compared - a rotated password is still a change", () => {
+    const before = ["hostname SW1", "enable secret 9 $9$OLDHASH", "!"]
+    const after = ["hostname SW1", "enable secret 9 $9$NEWHASH", "!"]
+    const plain = unifiedDiff(before, after, 1)
+    const masked = unifiedDiff(before, after, 1, true)
+    // Same finding either way: one line replaced.
+    expect({ added: masked.added, removed: masked.removed }).toEqual({ added: 1, removed: 1 })
+    expect(plain.text).toContain("$9$NEWHASH")
+    expect(masked.text).not.toContain("$9$")
+    expect(masked.text).toContain("-enable secret 9 ********")
+    expect(masked.text).toContain("+enable secret 9 ********")
+    // And a secret that did NOT change must not turn into a difference.
+    expect(unifiedDiff(before, before, 1, true).text).toBe("")
   })
 })
