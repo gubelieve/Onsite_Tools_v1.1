@@ -39,7 +39,10 @@ export interface RunDef {
   label: string
   params?: Record<string, unknown>
   danger?: boolean
+  /** `{count}` is replaced with the number of devices the run would touch. */
   confirm?: string
+  /** Ask for confirmation only when the form is in this state, e.g. { mode: "Config mode" }. */
+  confirmIf?: Record<string, string>
   notice?: string
   /** Fields this run does not need, although the form marks them required (e.g. flash cleanup needs no image). */
   optionalFields?: string[]

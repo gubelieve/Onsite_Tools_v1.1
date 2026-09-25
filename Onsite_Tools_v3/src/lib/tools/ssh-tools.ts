@@ -27,7 +27,10 @@ export const configDevices: ToolDef = {
       options: [{ value: "Verify mode", label: "Verify mode" }, { value: "Config mode", label: "Config mode (configure terminal first)" }] },
   ],
   columns: [...BASE_COLUMNS, "Output"],
-  runs: [{ id: "run", label: "Run" }],
+  // Verify mode only reads, so it runs straight away; Config mode changes devices and asks first.
+  runs: [{ id: "run", label: "Run", confirmIf: { mode: "Config mode" },
+    confirm: "Config mode sends these commands through 'configure terminal' on {count} device(s) and changes their running " +
+      "configuration. Nothing is saved to startup-config unless one of your commands does it. Proceed?" }],
   async run(ctx, params) {
     const devices = await devicesFor(ctx, params)
     if (!devices.length) return

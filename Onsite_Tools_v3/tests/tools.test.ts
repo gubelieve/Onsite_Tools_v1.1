@@ -44,6 +44,17 @@ describe("tool registry", () => {
     expect(flashName("C:\\ftp\\cat9k_iosxe 17.09.bin")).toBe("cat9k-iosxe-17.09.bin")
   })
 
+  it("Config mode asks before it changes devices, Verify mode does not", () => {
+    const run = getTool("config-devices")!.runs[0]
+    expect(run.confirmIf).toEqual({ mode: "Config mode" })
+    expect(run.confirm).toContain("{count}") // the dialog names how many devices it would touch
+    expect(run.confirm).toMatch(/configure terminal/)
+    // A read-only run must never sit behind a dialog.
+    for (const id of ["get-inventory", "cdp-inventory", "client-status-checker"]) {
+      for (const r of getTool(id)!.runs) expect(r.confirm, id).toBeFalsy()
+    }
+  })
+
   it("Config Devices picks per-device commands only when asked", () => {
     const d = { host: "10.0.0.1", site: "", deviceType: "", hostname: "", description: "", raw: { command: "show clock\nshow ver" } }
     expect(commandsFor(d, "show ip int br", true)).toEqual(["show clock", "show ver"])

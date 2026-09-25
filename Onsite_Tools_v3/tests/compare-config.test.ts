@@ -3,7 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
 import { looksLikeDiff, parseUnified } from "@/lib/diff-format"
-import { compareConfig, compileIgnore, DEFAULT_IGNORE, diffLines, normalize, scanFolder, unifiedDiff } from "@/lib/tools/compare-config"
+import { anchorsOf, byCommand, compareConfig, compileIgnore, DEFAULT_IGNORE, DEFAULT_SKIP, diffLines, isSkipped, normalize, scanFolder, splitSections, unifiedDiff } from "@/lib/tools/compare-config"
 
 const lines = (s: string) => s.trim().split("\n")
 
@@ -114,9 +114,16 @@ describe("Compare Configuration - end to end on real log folders", () => {
   const beforeDir = path.join(base, "before"), afterDir = path.join(base, "after"), runDir = path.join(base, "run")
   fs.mkdirSync(runDir, { recursive: true })
 
-  // Same layout Config Devices writes: <hostname>-<ip>_<stamp>.log
-  write(beforeDir, "SW-CORE-10.0.0.1_2026-09-20_100000.log", "Building configuration...\n\nhostname SW-CORE\nlogging host 10.1.1.1\nntp clock-period 1\n")
-  write(afterDir, "SW-CORE-10.0.0.1_2026-09-21_100000.log", "Building configuration...\n\nhostname SW-CORE\nlogging host 10.9.9.9\nntp clock-period 2\n")
+  // Same layout Config Devices writes: <hostname>-<ip>_<stamp>.log, a command list, then one section per command.
+  const coreLog = (logging: string, age: string, version: string) => [
+    "[Command List]", "show version", "show run", "show ip route", "",
+    "--- show version ---", "Building configuration...", version, "SW-CORE uptime is 3 weeks",
+    "--- show run ---", "hostname SW-CORE", logging, "ntp clock-period 1",
+    "----- -----              ----------", // a separator inside the output, not a command header
+    "--- show ip route ---", `O E1 10.1.92.0/24 [110/5024] via 10.14.110.10, ${age}, Gi1/0/1`, "",
+  ].join("\n")
+  write(beforeDir, "SW-CORE-10.0.0.1_2026-09-20_100000.log", coreLog("logging host 10.1.1.1", "2w5d", "Version 17.3.3"))
+  write(afterDir, "SW-CORE-10.0.0.1_2026-09-21_100000.log", coreLog("logging host 10.9.9.9", "00:05:13", "Version 17.15.5"))
   write(beforeDir, "SW-EDGE-10.0.0.2_2026-09-20_100000.log", "hostname SW-EDGE\nvlan 10\n")
   write(afterDir, "SW-EDGE-10.0.0.2_2026-09-21_100000.log", "hostname SW-EDGE\nvlan 10\n")
   write(beforeDir, "SW-GONE-10.0.0.3_2026-09-20_100000.log", "hostname SW-GONE\n")
@@ -128,33 +135,52 @@ describe("Compare Configuration - end to end on real log folders", () => {
     expect([...scanFolder(afterDir).keys()].sort()).toEqual(["10.0.0.1", "10.0.0.2", "10.0.0.4"])
   })
 
-  it("reports changed, unchanged and one-sided devices, and writes the diff files", async () => {
+  it("reports one row per command that changed, and leaves the volatile ones out", async () => {
     const { rows, messages, ctx } = fakeCtx(runDir)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await compareConfig.run(ctx as any, { beforeFolder: beforeDir, afterFolder: afterDir, ignore: DEFAULT_IGNORE.join("\n"), context: 3 })
+    await compareConfig.run(ctx as any, { beforeFolder: beforeDir, afterFolder: afterDir, ignore: DEFAULT_IGNORE.join("\n"),
+      skip: DEFAULT_SKIP.join("\n"), context: 3 })
 
-    const byIp = Object.fromEntries(rows.map((r) => [r["IP Address"], r]))
-    expect(byIp["10.0.0.1"]).toMatchObject({ Device: "SW_CORE", Status: "Changed", "Lines Added": "1", "Lines Removed": "1" })
-    expect(String(byIp["10.0.0.1"].Diff)).toContain("-logging host 10.1.1.1")
-    expect(String(byIp["10.0.0.1"].Diff)).toContain("+logging host 10.9.9.9")
-    // "ntp clock-period" differs in both files but is on the ignore list, so it is not a change.
-    expect(String(byIp["10.0.0.1"].Diff)).not.toContain("ntp clock-period")
-    expect(byIp["10.0.0.2"]).toMatchObject({ Status: "Same", Diff: "No difference." })
-    expect(byIp["10.0.0.3"]).toMatchObject({ Status: "Missing in After" })
-    expect(byIp["10.0.0.4"]).toMatchObject({ Status: "New in After" })
-    expect(messages).toContain("summary: 1 changed, 1 unchanged, 2 on one side only")
+    const core = rows.filter((r) => r["IP Address"] === "10.0.0.1")
+    expect(core.map((r) => r.Command), JSON.stringify(rows, null, 1)).toEqual(["show version", "show run"])
+    expect(core[0]).toMatchObject({ Device: "SW_CORE", Status: "Changed" })
+    expect(String(core[0].Diff)).toContain("+Version 17.15.5")
+    const showRun = core[1]
+    expect(showRun).toMatchObject({ Status: "Changed", "Lines Added": "1", "Lines Removed": "1" })
+    expect(String(showRun.Diff)).toContain("-logging host 10.1.1.1")
+    expect(String(showRun.Diff)).toContain("+logging host 10.9.9.9")
+    // "ntp clock-period" differs but is on the ignore list; the separator line is not a command of its own.
+    expect(String(showRun.Diff)).not.toContain("ntp clock-period")
+    expect(rows.map((r) => r.Command)).not.toContain("----- -----              ----------")
+    // The routing table changed only because the route ages did - it must not be reported at all.
+    expect(rows.some((r) => String(r.Command).includes("show ip route"))).toBe(false)
+    expect(messages.join(" | ")).toMatch(/Skipped 1 command\(s\).*show ip route/)
+
+    expect(rows.find((r) => r["IP Address"] === "10.0.0.2")).toMatchObject({ Command: "(all commands)", Status: "Same" })
+    expect(rows.find((r) => r["IP Address"] === "10.0.0.3")).toMatchObject({ Status: "Missing in After" })
+    expect(rows.find((r) => r["IP Address"] === "10.0.0.4")).toMatchObject({ Status: "New in After" })
+    expect(messages).toContain("summary: 1 device(s) changed (2 command(s)), 1 unchanged, 2 on one side only")
 
     const written = fs.readdirSync(runDir)
     expect(written.filter((f) => f.endsWith(".diff")).length).toBe(2) // one per changed device + the combined report
-    expect(fs.readFileSync(path.join(runDir, "SW_CORE-10.0.0.1.diff"), "utf8")).toContain("+logging host 10.9.9.9")
+    const perDevice = fs.readFileSync(path.join(runDir, "SW_CORE-10.0.0.1.diff"), "utf8")
+    expect(perDevice).toContain("### show run")
+    expect(perDevice).toContain("+logging host 10.9.9.9")
     expect(messages.some((m) => m.startsWith("artifact: compare_"))).toBe(true)
+  })
+
+  it("compares even the noisy commands once the skip list is cleared", async () => {
+    const { rows, ctx } = fakeCtx(runDir)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await compareConfig.run(ctx as any, { beforeFolder: beforeDir, afterFolder: afterDir, skip: "", onlyChanged: true })
+    expect(rows.map((r) => r.Command)).toContain("show ip route")
   })
 
   it("only lists the devices that changed when asked to", async () => {
     const { rows, ctx } = fakeCtx(runDir)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await compareConfig.run(ctx as any, { beforeFolder: beforeDir, afterFolder: afterDir, onlyChanged: true })
-    expect(rows.map((r) => r["IP Address"])).toEqual(["10.0.0.1"])
+    expect([...new Set(rows.map((r) => r["IP Address"]))]).toEqual(["10.0.0.1"])
   })
 
   it("refuses two folders that are the same, or a folder that is not there", async () => {
@@ -208,5 +234,78 @@ describe("side-by-side view", () => {
     expect(rows).toHaveLength(5)
     expect(rows.filter((r) => r.type === "same")).toHaveLength(4)
     expect(rows.some((r) => r.type === "gap")).toBe(false)
+  })
+})
+
+describe("reading a log as command sections", () => {
+  it("splits on the markers Config Devices writes, and on nothing else", () => {
+    const log = [
+      "[Command List]", "show version", "",
+      "--- show version ---", "Cisco IOS XE 17.9", "",
+      "--- show cdp neighbors detail ---",
+      "-------------------------",            // device output, not a header
+      "Device ID: SW-ACCESS-01",
+      "----- -----              ----------",  // a table rule, not a header
+      "--- show run ---", "hostname SW1",
+    ].join("\n")
+    const sections = splitSections(log)
+    expect(sections.map((s) => s.command)).toEqual(["(whole file)", "show version", "show cdp neighbors detail", "show run"])
+    expect(sections[0].text).toContain("[Command List]")       // the preamble stays its own section
+    expect(sections[2].text).toContain("-------------------------")
+    expect(sections[3].text).toBe("hostname SW1")
+  })
+
+  it("treats a file with no markers as one section, so any log still compares", () => {
+    expect(splitSections("hostname SW1\nvlan 10\n")).toEqual([{ command: "(whole file)", text: "hostname SW1\nvlan 10" }])
+    // An empty log has nothing to compare, so everything in the other one reads as "Only in After".
+    expect(splitSections("")).toEqual([])
+  })
+
+  it("keeps both outputs when a command was run twice", () => {
+    const map = byCommand(splitSections("--- show run ---\na\n--- show clock ---\nx\n--- show run ---\nb"))
+    expect(map.get("show run")).toBe("a\nb")
+  })
+
+  it("skips the commands whose output changes by itself", () => {
+    const skip = compileIgnore(DEFAULT_SKIP.join("\n"))
+    for (const c of ["show ip route", "show ip route ospf", "show ip arp", "show mac address-table", "show logging", "show clock"]) {
+      expect(isSkipped(c, skip), c).toBe(true)
+    }
+    for (const c of ["show run", "show version", "show cdp nei", "show ip interface brief", "show switch"]) {
+      expect(isSkipped(c, skip), c).toBe(false)
+    }
+  })
+})
+
+describe("big files", () => {
+  it("anchors on lines that appear once on each side", () => {
+    expect(anchorsOf(["a", "x", "b"], ["a", "y", "b"])).toEqual([[0, 0], [2, 2]])
+    expect(anchorsOf(["!", "!", "!"], ["!", "!"])).toEqual([]) // nothing unique to anchor on
+    // A line that moved backwards cannot be an anchor for both - the longest run in order wins.
+    expect(anchorsOf(["a", "b", "c"], ["c", "a", "b"])).toEqual([[0, 1], [1, 2]])
+  })
+
+  it("keeps a 60,000-line config readable instead of calling the whole file replaced", () => {
+    // Shaped like a real backup: unique interface blocks, one edited line, one inserted block.
+    const before: string[] = []
+    for (let i = 0; i < 20000; i++) before.push(`interface GigabitEthernet1/0/${i}`, ` description PORT-${i}`, "!")
+    const after = [...before]
+    after[1] = " description CHANGED"
+    after.splice(30000, 0, "interface Vlan999", " ip address 10.9.9.9 255.255.255.0", "!")
+    const started = Date.now()
+    const { added, removed, text } = unifiedDiff(before, after, 3)
+    expect({ added, removed }).toEqual({ added: 4, removed: 1 })
+    expect(text).toContain("+ ip address 10.9.9.9 255.255.255.0")
+    expect(Date.now() - started).toBeLessThan(5000)
+    // The old whole-file fallback would have reported every line of both files.
+    expect(added + removed).toBeLessThan(before.length / 100)
+  })
+
+  it("still shows one file replaced when there is genuinely nothing in common", () => {
+    const a = Array.from({ length: 4000 }, (_, i) => `alpha ${i}`)
+    const b = Array.from({ length: 4000 }, (_, i) => `beta ${i}`)
+    const ops = diffLines(a, b)
+    expect(ops.filter((o) => o.type === "-")).toHaveLength(4000)
+    expect(ops.filter((o) => o.type === "+")).toHaveLength(4000)
   })
 })
