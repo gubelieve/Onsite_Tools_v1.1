@@ -1,6 +1,7 @@
 /** Tool registry - the single list of tools (menu, pages and API all read from here). */
 import { compareConfig } from "./compare-config"
-import { captureDnac, dnacPortAssignment, dnacRestApi, sdWanApi } from "./controller-tools"
+import { captureDnac, dnacPortAssignment, sdWanApi } from "./controller-tools"
+import { dnacRestApi } from "./dnac-api"
 import { interfaceReport, securityHealthCheck, snmpInventory } from "./offline-tools"
 import { cdpInventory, clientStatusChecker, configDevices, getInventory, lldpInventory, verifySnmpUser } from "./ssh-tools"
 import { upgradeIos } from "./upgrade-ios"
