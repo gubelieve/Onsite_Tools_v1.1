@@ -202,6 +202,12 @@ class JobManager {
     while (this.jobs.size > MAX_LIVE_JOBS && finished.length) this.jobs.delete(finished.shift()!.id)
   }
 
+  /** Cheap "has anything happened?" for a running job - avoids rebuilding and shipping the whole snapshot. */
+  versionOf(id: string): number | null {
+    const live = this.jobs.get(id)
+    return live ? live.version : null
+  }
+
   async get(id: string): Promise<JobSnapshot | null> {
     const live = this.jobs.get(id)
     if (live) return live.snapshot()

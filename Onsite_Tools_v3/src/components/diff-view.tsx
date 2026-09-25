@@ -3,6 +3,16 @@
 import * as React from "react"
 import { parseUnified, type DiffRow } from "@/lib/diff-format"
 
+/**
+ * Two backups of the same device have almost the same path, so a truncated full path shows the same text on
+ * both sides. The folder and file name are what tell them apart - the whole path stays in the tooltip.
+ */
+const shortPath = (p?: string) => {
+  if (!p) return p
+  const parts = p.split(/[\\/]/).filter(Boolean)
+  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : p
+}
+
 /** Left file pink, right file green, the missing half of a pair greyed out - one table, so the two sides cannot drift. */
 const CELL: Record<DiffRow["type"], { left: string; right: string }> = {
   same: { left: "", right: "" },
@@ -61,9 +71,9 @@ export function DiffView({ text, leftName, rightName }: { text: string; leftName
           <thead>
             <tr className="bg-muted sticky top-0 z-[1]">
               <th className="border-r border-b px-2 py-1" />
-              <th className="max-w-0 truncate border-b px-2 py-1 text-left font-semibold" title={leftName}>{leftName ?? "Before"}</th>
+              <th className="max-w-0 truncate border-b px-2 py-1 text-left font-semibold" title={leftName}>{shortPath(leftName) ?? "Before"}</th>
               <th className="border-r border-l-2 border-b px-2 py-1" />
-              <th className="max-w-0 truncate border-b px-2 py-1 text-left font-semibold" title={rightName}>{rightName ?? "After"}</th>
+              <th className="max-w-0 truncate border-b px-2 py-1 text-left font-semibold" title={rightName}>{shortPath(rightName) ?? "After"}</th>
             </tr>
           </thead>
           <tbody>
