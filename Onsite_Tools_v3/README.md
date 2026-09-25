@@ -69,10 +69,17 @@
 
 | กลุ่ม | เครื่องมือ | แหล่งอุปกรณ์ |
 |-------|-----------|---------------|
-| SSH Tools | Config Devices (Verify / Config mode, คอลัมน์ต่อคำสั่ง, `command` ต่ออุปกรณ์), IOS Upgrade (6 stage + cleanup flash), Client Status Checker | Site Inventory |
+| SSH Tools | Config Devices (Verify / **Config mode มี confirm**, คอลัมน์ต่อคำสั่ง, `command` ต่ออุปกรณ์), IOS Upgrade (6 stage + cleanup flash), Client Status Checker | Site Inventory |
 | Inventory | Get Inventory, CDP Inventory, LLDP Inventory, SNMP Inventory, Verify SNMP User | Site Inventory |
 | Log Analysis | Interface Report, **Compare Configuration**, Security Health Check | โฟลเดอร์ log หรือ upload |
 | Catalyst Center / SD-WAN | **DNAC REST API** (เรียก API ไหนก็ได้), DNAC Port Assignment, SD-WAN Site List, Capture DNAC | เลือก endpoint ในฟอร์ม / CSV เฉพาะงาน / Site Inventory (Port Assignment) |
+
+**ก่อนเปลี่ยนอุปกรณ์จะถามก่อนเสมอ** – Config Devices โหมด **Config mode** จะขึ้น dialog บอกว่ากำลังจะส่งคำสั่งผ่าน
+`configure terminal` เข้า **กี่เครื่อง** (นับจาก checkbox ที่ติ๊กไว้จริง) ส่วนโหมด Verify ที่แค่อ่านจะไม่ถาม กดแล้ว run เลย
+เช่นเดียวกับ IOS Upgrade Stage 3 (install/reload) และ Cleanup: remove inactive images
+
+**ข้อความระหว่าง run** ขึ้นเป็นบรรทัดใต้หลอด progress (เอาเมาส์ชี้เพื่อดูย้อนหลังทั้งหมด หรือเปิดหัวข้อ Log ด้านล่าง)
+มีเฉพาะ **warning / error** เท่านั้นที่เด้งเป็น toast – ของเดิมเด้งทุกข้อความจนบังตารางผลลัพธ์
 
 Device type `autodetect` ลองคำสั่งปิด paging ของ Cisco → Huawei → HPE Comware → Juniper → ProCurve ตามลำดับ
 รองรับ key-exchange / cipher รุ่นเก่า (IOS เก่า) และ keyboard-interactive login
@@ -162,13 +169,20 @@ Command Runner (`legit-reads` + `read-request`) และ task / file
 
 1. **Before: log folder** / **After: log folder** – กด Browse เลือกโฟลเดอร์ `logs/config-devices/<วันเวลา>` ของแต่ละรอบ
 2. จับคู่อุปกรณ์จาก **IP ในชื่อไฟล์** (ถ้าไม่มี IP ใช้ hostname) – ไฟล์ `job.log` ของ run ถูกข้ามให้อัตโนมัติ
-3. ผลลัพธ์ต่ออุปกรณ์: `Same` / `Changed` (+กี่บรรทัด −กี่บรรทัด) / `Missing in After` / `New in After`
+3. **เทียบแยกทีละคำสั่ง** ตาม marker `--- show run ---` ที่ Config Devices เขียนไว้ – ได้ 1 แถวต่อ 1 คำสั่งที่เปลี่ยน
+   (`Same` / `Changed` +กี่บรรทัด −กี่บรรทัด / `Only in Before` / `Only in After`) อุปกรณ์ที่ไม่เปลี่ยนอะไรเลยได้แถวเดียวว่า `(all commands) Same`
+   ไฟล์ที่ไม่มี marker (log จากที่อื่น) เทียบทั้งไฟล์เหมือนเดิม
 4. กด **View** เปิดหน้าต่าง **เทียบ 2 ฝั่งแบบ MobaDiff / WinMerge** – before ซ้าย after ขวา มีเลขบรรทัดทั้งสองข้าง
    บรรทัดที่หายไป**ชมพู** บรรทัดที่เพิ่มมา**เขียว** ฝั่งที่ไม่มีคู่เป็นช่องเทา เลื่อนพร้อมกันทั้งสองฝั่ง
    ติ๊ก **Hide unchanged lines** เพื่อดูเฉพาะบรรทัดที่เปลี่ยน
 
+> **ทำไมต้องแยกตามคำสั่ง:** log backup 1 ไฟล์มักมี `show ip route ospf` ยาว 55,000 บรรทัด ซึ่งหลัง reload **อายุ route เปลี่ยนหมดทุกบรรทัด**
+> (`2w5d` → `00:05:13`) ถ้าเทียบทั้งไฟล์รวดเดียวจะได้ "ต่างกัน 58,000 บรรทัด" ซึ่งอ่านไม่ได้เลย พอแยกตามคำสั่งและข้ามคำสั่งที่ผันผวน
+> ผลลัพธ์จริงของเคสนี้เหลือ `show run: +45 / −42` กับอีก 5 คำสั่ง — คือสิ่งที่อยากรู้จริง ๆ
+
 | ช่อง | ใช้ทำอะไร |
 |------|-----------|
+| **Skip these commands** | regex บรรทัดละ 1 อัน เทียบกับชื่อคำสั่งใน marker – ค่าเริ่มต้นข้าม `show ip route`, `show ip bgp`, `show ip arp`, `show mac address`, `show logging`, `show process`, `show clock`, `show interfaces` (เอาท์พุตเปลี่ยนเองทุกครั้งเพราะ age/counter) ลบให้ว่างถ้าอยากเทียบทุกคำสั่ง |
 | **Ignore lines matching** | regex บรรทัดละ 1 อัน สำหรับบรรทัดที่เปลี่ยนเองทุก run – ค่าเริ่มต้นตัด `Building configuration`, `Current configuration :`, `Last configuration change`, `ntp clock-period`, `uptime is`, `Time source is` ออกให้แล้ว (ลบให้ว่างถ้าอยากเทียบทุกบรรทัดจริง ๆ) |
 | **Context lines** | จำนวนบรรทัดรอบ ๆ จุดที่เปลี่ยน (ค่าเริ่มต้น 3) – ส่วนที่ถูกข้ามจะมีแถบ `⋯ N unchanged line(s) ⋯` คั่นให้เห็น |
 | **Keep the whole file** | เก็บทุกบรรทัดของทั้ง 2 ไฟล์ เพื่อให้เลื่อนดูได้ตั้งแต่ต้นจนจบเหมือน MobaDiff (ไฟล์ใหญ่จะกินพื้นที่มากกว่า) |

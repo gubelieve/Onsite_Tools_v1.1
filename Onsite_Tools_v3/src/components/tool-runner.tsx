@@ -101,6 +101,12 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
 
   const visible = (f: FieldDef) => !f.showIf || Object.entries(f.showIf).every(([k, v]) => String(values[k] ?? "") === v)
 
+  /** How many devices this run would touch - shown in a confirmation so nobody guesses. */
+  const deviceCount = picked ? picked.size : inv?.count ?? 0
+  /** A run asks first when it always asks (confirm / notice) or when the form is in the state it asks about. */
+  const needsAsking = (r: RunDef) =>
+    Boolean(r.notice) || (Boolean(r.confirm) && (!r.confirmIf || Object.entries(r.confirmIf).every(([k, v]) => String(values[k] ?? "") === v)))
+
   async function upload(f: FieldDef, files: FileList | null) {
     if (!files?.length) return
     const fd = new FormData()
@@ -239,7 +245,7 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
         <div className="mt-5 flex flex-wrap items-center gap-2">
           {tool.runs.map((r) => (
             <Button key={r.id} label={r.label} variant={r.danger ? "destructive" : "primary"} isDisabled={busy} icon={<Play className="h-3.5 w-3.5" />}
-              onClick={() => (r.confirm || r.notice ? setPending(r) : void start(r))} />
+              onClick={() => (needsAsking(r) ? setPending(r) : void start(r))} />
           ))}
           <span className="flex-1" />
           {tool.fields.some((f) => f.type === "password") && <CheckboxInput label="Remember credentials in this browser" value={remember} onChange={setRemember} size="sm" />}
@@ -257,7 +263,7 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
 
       {pending && (
         <AlertDialog isOpen onOpenChange={(open) => { if (!open) setPending(null) }} title={pending.label}
-          description={pending.confirm ?? pending.notice ?? ""}
+          description={(pending.confirm ?? pending.notice ?? "").replace("{count}", deviceCount.toLocaleString())}
           cancelLabel="Cancel" actionLabel={pending.confirm ? "Confirm" : "Continue"} actionVariant={pending.danger ? "destructive" : "primary"}
           onAction={() => void start(pending)} />
       )}

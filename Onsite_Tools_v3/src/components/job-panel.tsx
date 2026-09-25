@@ -55,13 +55,19 @@ export function JobPanel({ jobId, onFinished }: { jobId: string; onFinished?: ()
     seen.current = 0
     const poll = async () => {
       try {
-        const r = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" })
+        // Ask only for what changed: the server answers "unchanged" instead of resending the whole run.
+        const r = await fetch(`/api/jobs/${jobId}${version >= 0 ? `?version=${version}` : ""}`, { cache: "no-store" })
         if (!r.ok) throw new Error((await r.json()).error ?? r.statusText)
-        const snap = (await r.json()) as JobSnapshot
+        const snap = (await r.json()) as JobSnapshot & { unchanged?: boolean }
         if (!alive) return
+        if (snap.unchanged) { timer = setTimeout(poll, 1000); return }
         if (snap.version !== version) { version = snap.version; setJob(snap) }
         for (const m of snap.messages) {
-          if (m.seq > seen.current) { seen.current = m.seq; toast({ body: m.text, type: m.level === "error" ? "error" : "info" }) }
+          if (m.seq <= seen.current) continue
+          seen.current = m.seq
+          // Only what needs attention interrupts. Progress notes would otherwise stack up over the results;
+          // they are on the line under the progress bar and in the log.
+          if (m.level === "error" || m.level === "warning") toast({ body: m.text, type: m.level === "error" ? "error" : "info" })
         }
         if (["queued", "running"].includes(snap.status)) timer = setTimeout(poll, 1000)
         else finishedRef.current?.()
@@ -109,6 +115,15 @@ export function JobPanel({ jobId, onFinished }: { jobId: string; onFinished?: ()
           <Button variant="secondary" size="sm" label="Zip log files" icon={<FileArchive className="h-3.5 w-3.5" />} href={`/api/jobs/${job.id}/logs`} />
         )}
       </div>
+
+      {/* What the run is doing right now. It used to be a toast per message, which buried the results. */}
+      {job.messages.length > 0 && (
+        <p className={`mb-2 truncate text-xs ${job.messages.at(-1)!.level === "error" ? "text-destructive" : "text-muted-foreground"}`}
+          title={job.messages.map((m) => `${m.ts} ${m.text}`).join("\n")}>
+          {job.messages.at(-1)!.ts} · {job.messages.at(-1)!.text}
+          {job.messages.length > 1 && <span className="ml-2 opacity-60">({job.messages.length} messages — hover, or see the log below)</span>}
+        </p>
+      )}
 
       {job.error && <p className="text-destructive mb-2 text-sm">{job.error}</p>}
       {(job.artifacts.length > 0 || job.runDir) && (
