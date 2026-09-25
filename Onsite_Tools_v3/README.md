@@ -182,11 +182,12 @@ Command Runner (`legit-reads` + `read-request`) และ task / file
 
 | ช่อง | ใช้ทำอะไร |
 |------|-----------|
-| **Skip these commands** | regex บรรทัดละ 1 อัน เทียบกับชื่อคำสั่งใน marker – ค่าเริ่มต้นข้าม `show ip route`, `show ip bgp`, `show ip arp`, `show mac address`, `show logging`, `show process`, `show clock`, `show interfaces` (เอาท์พุตเปลี่ยนเองทุกครั้งเพราะ age/counter) ลบให้ว่างถ้าอยากเทียบทุกคำสั่ง |
+| **Skip these commands** | regex บรรทัดละ 1 อัน เทียบกับชื่อคำสั่งใน marker – ค่าเริ่มต้นข้าม `show ip route`, `show ip bgp`, `show ip arp`, `show mac address`, `show logging`, `show process`, `show clock`, `show interfaces`, `show environment` (เอาท์พุตเปลี่ยนเองทุกครั้งเพราะ age / counter / อุณหภูมิ) ลบบรรทัดไหนออกก็เทียบคำสั่งนั้นด้วย — เช่นเอา `show environment` ออกถ้าอยากจับ PSU/fan ที่ดับ |
 | **Ignore lines matching** | regex บรรทัดละ 1 อัน สำหรับบรรทัดที่เปลี่ยนเองทุก run – ค่าเริ่มต้นตัด `Building configuration`, `Current configuration :`, `Last configuration change`, `ntp clock-period`, `uptime is`, `Time source is` ออกให้แล้ว (ลบให้ว่างถ้าอยากเทียบทุกบรรทัดจริง ๆ) |
 | **Context lines** | จำนวนบรรทัดรอบ ๆ จุดที่เปลี่ยน (ค่าเริ่มต้น 3) – ส่วนที่ถูกข้ามจะมีแถบ `⋯ N unchanged line(s) ⋯` คั่นให้เห็น |
 | **Keep the whole file** | เก็บทุกบรรทัดของทั้ง 2 ไฟล์ เพื่อให้เลื่อนดูได้ตั้งแต่ต้นจนจบเหมือน MobaDiff (ไฟล์ใหญ่จะกินพื้นที่มากกว่า) |
 | **Show only devices that changed** | ซ่อนตัวที่เหมือนเดิม เวลามีอุปกรณ์เยอะ |
+| **Mask passwords and keys** | แทนค่าหลัง `enable secret`, `username … secret/password`, `key 7 …`, `server-key`, `snmp-server community`, TACACS/RADIUS key, pre-shared key และ SNMPv3 `auth/priv` ด้วย `********` — **mask ตอนพิมพ์ผลเท่านั้น ไม่ได้ mask ก่อนเทียบ** ถ้ามีคนเปลี่ยนรหัสจริง บรรทัดนั้นจะยังขึ้นว่าเปลี่ยน (เห็นว่าเปลี่ยน แต่ไม่เห็นค่า) เหมาะกับตอนต้องส่ง diff ให้คนอื่น |
 
 ไฟล์ที่ได้: `<hostname>-<ip>.diff` ต่ออุปกรณ์ + `compare_<วันเวลา>.diff` รวมทุกตัว (เป็นปุ่มดาวน์โหลด) อยู่ใน `logs/compare-config/<วันเวลา>/`
 กด **Zip log files** ได้ทั้งชุดเหมือนเครื่องมืออื่น
