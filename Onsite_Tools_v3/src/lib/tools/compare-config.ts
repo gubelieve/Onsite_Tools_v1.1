@@ -38,7 +38,43 @@ export const DEFAULT_SKIP = [
   "^show process",
   "^show clock",
   "^show interfaces?$",
+  // Temperatures, fan speeds and voltages move by themselves on every reading. Take this line out of the
+  // list when the point of the comparison is the hardware (a PSU or fan that stopped).
+  "^show environment",
 ]
+
+/**
+ * Secrets in a config: the hash changes when the password is rotated, so the line still reports as changed -
+ * only the value is hidden. Group 1 is what gets replaced, so each pattern keeps the part that identifies
+ * the line and masks the rest.
+ */
+export const SECRET_PATTERNS: [RegExp, string][] = [
+  // A secret introduced by its encryption type: "secret 9 $9$…", "password 7 …", "key 7 …", "md5 7 …".
+  // Not anchored to the start of the line - IOS puts them in the middle:
+  //   username network privilege 15 secret 9 $9$KHSe…
+  //   client 10.8.72.23 server-key 7 132E2330…
+  // The lookbehind keeps "key" from matching the tail of "message-digest-key 1 md5 7 <hash>", where the 1 is
+  // a key id and the hash sits further along the line.
+  [/(?<![\w-])(password|secret|key|server-key|key-string|pre-shared-key|shared-secret|md5|wpa-psk)(\s+[0-9])\s+\S+/gi, "$1$2 ********"],
+  // The same keywords in clear text (no type digit), plus the ones that never carry one.
+  [/(?<![\w-])(password|secret|server-key|key-string|pre-shared-key|shared-secret|community)\s+(?![0-9]\s)\S+/gi, "$1 ********"],
+  // SNMPv3: "auth sha <pass> priv aes 128 <pass>".
+  [/\b(auth\s+(?:md5|sha\d*)|priv\s+(?:aes|des|3des)(?:\s+\d+)?)\s+\S+/gi, "$1 ********"],
+]
+
+/**
+ * Hide the value of a secret while keeping the fact that the line is there.
+ *
+ * This runs on the **printed** diff, never before it: masking two different hashes first would make them
+ * equal, and a password that somebody rotated would silently stop being a change. Diff on the real values,
+ * hide the values afterwards - the line still shows up in red/green, with the secret unreadable.
+ */
+export function maskSecrets(line: string): string {
+  let out = line
+  // Every pattern is applied: one line can hold two secrets ("auth sha X priv aes Y").
+  for (const [re, replacement] of SECRET_PATTERNS) out = out.replace(re, replacement)
+  return out
+}
 
 export function compileIgnore(text: string): RegExp[] {
   const out: RegExp[] = []
@@ -233,7 +269,7 @@ function backtrack(a: string[], b: string[], trace: Int32Array[], off: number): 
 export interface DiffResult { text: string; added: number; removed: number }
 
 /** Unified diff with line numbers, so a change can be found again in the real config. */
-export function unifiedDiff(before: string[], after: string[], context = 3): DiffResult {
+export function unifiedDiff(before: string[], after: string[], context = 3, mask = false): DiffResult {
   const ops = diffLines(before, after)
   const added = ops.filter((o) => o.type === "+").length
   const removed = ops.filter((o) => o.type === "-").length
@@ -264,7 +300,7 @@ export function unifiedDiff(before: string[], after: string[], context = 3): Dif
     if (!hunk.length) { hunkBefore = beforeNo; hunkAfter = afterNo }
     if (op.type !== "+") counts.b++
     if (op.type !== "-") counts.a++
-    hunk.push(`${op.type === "=" ? " " : op.type}${op.line}`)
+    hunk.push(`${op.type === "=" ? " " : op.type}${mask ? maskSecrets(op.line) : op.line}`)
   }
   flush()
   return { text: lines.join("\n"), added, removed }
@@ -313,6 +349,10 @@ export const compareConfig: ToolDef = {
     { name: "wholeFile", label: "Keep the whole file (side-by-side like MobaDiff/WinMerge)", type: "checkbox", default: false, width: "half",
       help: "Every line of both files is kept, so the View window can be scrolled end to end. Heavier for big configs." },
     { name: "onlyChanged", label: "Show only devices that changed", type: "checkbox", default: false, width: "half" },
+    { name: "maskSecrets", label: "Mask passwords and keys in the diff", type: "checkbox", default: false, width: "half",
+      help: "Replaces the value after 'enable secret', 'username … password', 'key 7 …', 'snmp-server community', " +
+        "TACACS/RADIUS keys and pre-shared keys with ********. The line still shows as changed when the secret was " +
+        "rotated - only the value is hidden, so the diff is safe to send on." },
   ],
   columns: COLUMNS,
   runs: [{ id: "run", label: "Compare" }],
@@ -329,6 +369,7 @@ export const compareConfig: ToolDef = {
     // "Whole file" keeps every unchanged line, which is what makes the side-by-side view scrollable end to end.
     const context = bool(params.wholeFile) ? Number.MAX_SAFE_INTEGER : Math.max(0, Math.min(20, Number(params.context) || 3))
     const onlyChanged = bool(params.onlyChanged)
+    const mask = bool(params.maskSecrets)
     const before = scanFolder(beforeDir), after = scanFolder(afterDir)
     if (!before.size && !after.size) { ctx.error("No .log files in either folder."); return }
     ctx.info(`Before: ${before.size} device log(s), After: ${after.size} device log(s).`)
@@ -369,14 +410,14 @@ export const compareConfig: ToolDef = {
           if (bs === undefined || as === undefined) {
             changedCommands++
             const status = bs === undefined ? "Only in After" : "Only in Before"
-            const text = normalize(bs ?? as ?? "", ignore).map((l) => `${bs === undefined ? "+" : "-"}${l}`)
+            const text = normalize(bs ?? as ?? "", ignore).map((l) => `${bs === undefined ? "+" : "-"}${mask ? maskSecrets(l) : l}`)
             const diff: DiffResult = { text: [`@@ -1,${bs === undefined ? 0 : text.length} +1,${bs === undefined ? text.length : 0} @@`, ...text].join("\n"),
               added: bs === undefined ? text.length : 0, removed: bs === undefined ? 0 : text.length }
             changes.push({ command, diff })
             ctx.addRow(row(command, status, diff.text, String(diff.added), String(diff.removed)))
             continue
           }
-          const diff = unifiedDiff(normalize(bs, ignore), normalize(as, ignore), context)
+          const diff = unifiedDiff(normalize(bs, ignore), normalize(as, ignore), context, mask)
           if (!diff.text) continue
           changedCommands++
           changes.push({ command, diff })
