@@ -3,13 +3,13 @@ import fs from "node:fs"
 import path from "node:path"
 import { parseCsv, findCol, toCsv } from "../csv"
 import { baseUrl, HttpSession } from "../net/http"
-import { EXPORTS_DIR, SCREENSHOTS_DIR, BASE_DIR, ensureDir, hms, safeName, stamp } from "../paths"
+import { SCREENSHOTS_DIR, BASE_DIR, ensureDir, hms, safeName, stamp } from "../paths"
 import type { JobContext } from "../jobs"
 import { devicesFor, uploadedPath } from "./common"
 import { bool, INVENTORY_FIELDS, num, str, type FieldDef, type Params, type ToolDef } from "./types"
 
 const STAGE_COLUMNS = ["Stage", "Hostname", "Status", "Message", "Progress", "Output", "Timestamp"]
-const VERIFY_SSL: FieldDef = { name: "verifySsl", label: "Verify SSL certificate", type: "checkbox", default: false, width: "half",
+export const VERIFY_SSL: FieldDef = { name: "verifySsl", label: "Verify SSL certificate", type: "checkbox", default: false, width: "half",
   help: "Untick for self-signed certificates." }
 
 const emitter = (ctx: JobContext) => (stage: string, host: string, status: string, message: string, progress: number | string = "", output = "") =>
@@ -21,7 +21,7 @@ function readCsvParam(params: Params, name: string) {
   return parseCsv(fs.readFileSync(file, "utf8"))
 }
 
-async function dnacLogin(params: Params) {
+export async function dnacLogin(params: Params) {
   const http = new HttpSession(bool(params.verifySsl))
   const base = baseUrl(str(params.baseUrl))
   const r = await http.request("POST", `${base}/dna/system/api/v1/auth/token`, { basicAuth: [str(params.username), str(params.password)], timeoutSec: 30 })
@@ -31,63 +31,11 @@ async function dnacLogin(params: Params) {
   return { http, base }
 }
 
-const CONTROLLER_LOGIN: FieldDef[] = [
+export const CONTROLLER_LOGIN: FieldDef[] = [
   { name: "baseUrl", label: "Controller URL", type: "text", required: true, placeholder: "https://10.0.0.1", remember: true },
   { name: "username", label: "Username", type: "text", required: true, width: "half", remember: true },
   { name: "password", label: "Password", type: "password", required: true, width: "half", remember: true },
 ]
-
-// ------------------------------------------------------------------ DNAC REST API
-export const dnacRestApi: ToolDef = {
-  id: "dnac-rest-api", name: "DNAC REST API", category: "Catalyst Center / SD-WAN", order: 60, icon: "cloud",
-  description: "Call each GET endpoint from the URL list against a Catalyst Center and save the JSON reply to exports/dnac_output/.",
-  fields: [
-    { name: "urlFile", label: "URL list (CSV)", type: "file", accept: ".csv", required: true, template: "dnac_urls_template.csv",
-      help: "Columns: URL_Name, Endpoint" },
-    ...CONTROLLER_LOGIN, VERIFY_SSL,
-    { name: "threads", label: "Max parallel calls", type: "number", default: 5, min: 1, max: 50, width: "half" },
-  ],
-  columns: ["URL Name", "Endpoint", "Status", "Output File", "Response"],
-  runs: [{ id: "run", label: "Submit REST API Calls" }],
-  async run(ctx, params) {
-    const { fields, rows } = readCsvParam(params, "urlFile")
-    const nameCol = findCol(fields, "URL_Name", "name"), epCol = findCol(fields, "Endpoint", "url", "path")
-    if (!nameCol || !epCol) { ctx.error("CSV must contain 'URL_Name' and 'Endpoint' columns."); return }
-    const urls = rows.filter((r) => r[nameCol] && r[epCol]).slice(0, 500)
-    if (!urls.length) { ctx.error("No valid URLs found in the file."); return }
-    ctx.setColumns(this.columns)
-    const keys = urls.map((r) => ctx.addRow({ "URL Name": r[nameCol], Endpoint: r[epCol], Status: "Pending...", "Output File": "", Response: "" }))
-    let session: Awaited<ReturnType<typeof dnacLogin>>
-    try { session = await dnacLogin(params) } catch (e) {
-      ctx.error((e as Error).message)
-      keys.forEach((k) => ctx.updateRow(k, { Status: "Auth failed", Response: (e as Error).message }))
-      return
-    }
-    const outDir = ensureDir(path.join(EXPORTS_DIR, "dnac_output"))
-    let ok = 0
-    await ctx.mapParallel(urls.map((r, i) => ({ r, key: keys[i] })), async ({ r, key }) => {
-      const url = session.base + (r[epCol].startsWith("/") ? "" : "/") + r[epCol]
-      try {
-        const res = await session.http.get(url)
-        if (res.status === 200) {
-          let text = res.text
-          try { text = JSON.stringify(JSON.parse(res.text), null, 2) } catch { /* keep raw */ }
-          const name = `${safeName(r[nameCol], " _-")}_${stamp()}.json`
-          const file = path.join(outDir, name)
-          fs.writeFileSync(file, text, "utf8")
-          ctx.artifact(name, file)
-          ok++
-          ctx.updateRow(key, { Status: "Success", "Output File": file, Response: text.slice(0, 20000) })
-        } else ctx.updateRow(key, { Status: `HTTP ${res.status}`, "Output File": "N/A", Response: res.text.slice(0, 20000) })
-      } catch (e) {
-        ctx.log(`REST API error for ${url}: ${(e as Error).message}`, "ERROR")
-        ctx.updateRow(key, { Status: "Request Error", "Output File": "N/A", Response: (e as Error).message })
-      }
-    }, num(params.threads, 5))
-    ctx.summary(`Total ${ok}/${urls.length}`)
-    ctx.info("REST API calls have completed.")
-  },
-}
 
 // ------------------------------------------------------------------ DNAC port assignment
 const PA_FIELDS = ["fabricId", "networkDeviceId", "interfaceName", "connectedDeviceType", "dataVlanName", "voiceVlanName",

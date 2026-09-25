@@ -72,7 +72,7 @@
 | SSH Tools | Config Devices (Verify / Config mode, คอลัมน์ต่อคำสั่ง, `command` ต่ออุปกรณ์), IOS Upgrade (6 stage + cleanup flash), Client Status Checker | Site Inventory |
 | Inventory | Get Inventory, CDP Inventory, LLDP Inventory, SNMP Inventory, Verify SNMP User | Site Inventory |
 | Log Analysis | Interface Report, **Compare Configuration**, Security Health Check | โฟลเดอร์ log หรือ upload |
-| Catalyst Center / SD-WAN | DNAC REST API, DNAC Port Assignment, SD-WAN Site List, Capture DNAC | CSV เฉพาะงาน / Site Inventory (Port Assignment) |
+| Catalyst Center / SD-WAN | **DNAC REST API** (เรียก API ไหนก็ได้), DNAC Port Assignment, SD-WAN Site List, Capture DNAC | เลือก endpoint ในฟอร์ม / CSV เฉพาะงาน / Site Inventory (Port Assignment) |
 
 Device type `autodetect` ลองคำสั่งปิด paging ของ Cisco → Huawei → HPE Comware → Juniper → ProCurve ตามลำดับ
 รองรับ key-exchange / cipher รุ่นเก่า (IOS เก่า) และ keyboard-interactive login
@@ -134,6 +134,27 @@ ode.exe'
 * 2 ปุ่มนี้ **ไม่ต้องเลือก IOS image file** (ทำงานกับของที่อยู่บน flash อยู่แล้ว) กดได้เลยแม้ช่อง image ว่าง
 * อุปกรณ์ที่เป็น bundle mode / IOS เก่าจะไม่มีคำสั่งนี้ – เครื่องมือจะบอกตรง ๆ ว่าต้องใช้ `delete flash:<file>` แทน
 * ทั้ง log และรายชื่อไฟล์ถูกเก็บลงโฟลเดอร์ session เดียวกับ stage อื่น ๆ
+
+## DNAC REST API – เรียก API ของ Catalyst Center
+
+ไม่ต้องเขียน script / ไม่ต้องทำ CSV ก่อน: ใส่ URL + user/password ของ Catalyst Center แล้ว **เลือก endpoint จากรายการ** (หรือพิมพ์ path เอง) กด Send request
+
+สิ่งที่เครื่องมือจัดการให้ตามสเปคของ Cisco ([developer.cisco.com/docs/catalyst-center](https://developer.cisco.com/docs/catalyst-center/)):
+
+| เรื่อง | ทำอะไรให้ |
+|--------|-----------|
+| **Login** | `POST /dna/system/api/v1/auth/token` แบบ Basic auth → ได้ `Token` (อายุ 60 นาที) แล้วแนบ `X-Auth-Token` ให้ทุก request เอง |
+| **Paging** | Catalyst Center ส่งได้สูงสุด **500 record ต่อครั้ง** และ `offset` เริ่มที่ **1** – ติ๊ก *Fetch every page* แล้วมันจะไล่ยิงจนครบ (มี *Stop after this many records* กันหลุด) |
+| **ผลลัพธ์** | แกะ `{"response": …}` ออกให้ แล้วแปลงเป็น **ตาราง** (list = 1 แถวต่อ record, record เดียว = Field/Value) → Export CSV ได้เลย และเซฟ JSON ดิบเป็นไฟล์แนบ |
+| **Task** | ทุก POST/PUT/DELETE ของ Catalyst Center ตอบกลับเป็น `taskId` ไม่ใช่ผลลัพธ์ – เครื่องมือจะตาม `GET /dna/intent/api/v1/task/{id}` ให้ และถ้า task สร้างไฟล์ไว้ (`fileId`) ก็จะไปดึง `GET /dna/intent/api/v1/file/{id}` มาให้ด้วย (Command Runner ใช้ทางนี้) |
+| **{id} ในพาธ** | endpoint ที่มี `{id}` / `{ip}` ใส่ค่าในช่อง *Value for {id} / {ip} in the path* ช่องเดียว |
+| **Query** | พิมพ์ `key=value` บรรทัดละอัน ไม่ต้อง escape เอง (`#` = comment) |
+
+Endpoint ที่ใส่ไว้ให้เลือก เช่น network-device (+count, by UUID, by IP, config), interface, site / site-health / membership,
+network-health, client-health, issues, client-detail, SDA port assignments & fabric sites, SWIM images, templates, compliance,
+Command Runner (`legit-reads` + `read-request`) และ task / file
+
+ปุ่ม **Run URL list (CSV)** คือพฤติกรรมเดิม (ไฟล์ `URL_Name,Endpoint` แล้ว GET ทีละบรรทัด) ยังอยู่ครบ
 
 ## Compare Configuration – เทียบ Before / After
 
