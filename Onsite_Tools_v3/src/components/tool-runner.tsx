@@ -64,10 +64,24 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
 
   const [historyTick, setHistoryTick] = React.useState(0)
   const refreshHistory = React.useCallback(() => setHistoryTick((n) => n + 1), [])
+  // The job keeps running on this PC whatever the browser does; this ref is how the page finds it again.
+  const watching = React.useRef<string | null>(null)
+  React.useEffect(() => { watching.current = jobId }, [jobId])
   React.useEffect(() => {
     let alive = true
     fetch(`/api/jobs?tool=${tool.id}`, { cache: "no-store" }).then((x) => x.json())
-      .then((r) => { if (alive) setHistory([...r.running.map((j: HistoryItem) => ({ ...j, rowCount: j.rowCount ?? 0 })), ...r.history]) })
+      .then((r: { running: HistoryItem[]; history: HistoryItem[] }) => {
+        if (!alive) return
+        setHistory([...r.running.map((j) => ({ ...j, rowCount: j.rowCount ?? 0 })), ...r.history])
+        // Walking to another menu during an hour-long upload and back must not look like the run is gone -
+        // and must not invite a second one on the same devices.
+        const live = r.running[0]
+        if (live && !watching.current) {
+          watching.current = live.id
+          setJobId(live.id)
+          setBusy(true)
+        }
+      })
       .catch(() => undefined)
     return () => { alive = false }
   }, [tool.id, historyTick])
@@ -305,9 +319,12 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
           {tool.fields.some((f) => f.type === "password") && <CheckboxInput label="Remember credentials in this browser" value={remember} onChange={setRemember} size="sm" />}
           {history.length > 0 && (
             <div className="w-80">
-              <Selector label="Previous runs" isLabelHidden placeholder="Previous runs…" size="sm" value={jobId ?? ""}
-                options={history.map((h) => ({ value: h.id, label: `${h.created} · ${h.runLabel} · ${h.status} · ${h.rowCount} rows` }))}
-                onChange={(id) => { setBusy(false); setJobId(id) }} />
+              <Selector label="Runs" isLabelHidden size="sm" value={jobId ?? ""}
+                placeholder={history.some((h) => ["running", "queued"].includes(h.status)) ? "Running now · earlier runs…" : "Previous runs…"}
+                options={history.map((h) => ({ value: h.id,
+                  // A run that is still going is not a "previous" run - it is the one to go back to.
+                  label: `${["running", "queued"].includes(h.status) ? "▶ " : ""}${h.created} · ${h.runLabel} · ${h.status} · ${h.rowCount} rows` }))}
+                onChange={(id) => { setBusy(history.some((h) => h.id === id && ["running", "queued"].includes(h.status))); setJobId(id) }} />
             </div>
           )}
         </div>
