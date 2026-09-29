@@ -53,6 +53,12 @@
 * เลือก list = All → ตัด IP ซ้ำข้าม list ให้อัตโนมัติ
 * ใส่ IP แบบ `10.0.0.1:2222` ได้ ถ้า SSH ไม่ได้อยู่ที่ port 22
 
+### เลือกได้ทีละหลายอัน (Multi-select)
+
+ช่อง **Device list (Site Inventory)** และ **Device Category** เลือกได้หลายค่าพร้อมกัน (เช่น list `LAB` + `device_list_arise`,
+category `SS` + `WLC`) มีช่องค้นหาและปุ่ม Select all ในตัว — **ไม่เลือกอะไรเลย = ทั้งหมด** ตามที่เขียนไว้ในช่อง
+ถ้า list/category ที่เคยเลือกไว้หายไปหลัง import ใหม่ ระบบจะตัดอันนั้นออกให้เอง ไม่ใช่คืนค่าว่าง
+
 ### รายชื่ออุปกรณ์ในฟอร์ม (ทุกเครื่องมือที่ใช้ Site Inventory)
 
 ใต้ช่อง **Device list** + **Device Category** ของทุกเครื่องมือ จะมีตารางบอกว่า *ตอนนี้เลือกอุปกรณ์ตัวไหนอยู่บ้าง*
@@ -69,7 +75,7 @@
 
 | กลุ่ม | เครื่องมือ | แหล่งอุปกรณ์ |
 |-------|-----------|---------------|
-| SSH Tools | Config Devices (Verify / **Config mode มี confirm**, คอลัมน์ต่อคำสั่ง, `command` ต่ออุปกรณ์), IOS Upgrade (6 stage + cleanup flash), Client Status Checker | Site Inventory |
+| SSH Tools | Config Devices (Verify / **Config mode มี confirm**, คอลัมน์ต่อคำสั่ง, **ชุดคำสั่งแยกตาม Device Category**, `command` ต่ออุปกรณ์), IOS Upgrade (6 stage + cleanup flash), Client Status Checker | Site Inventory |
 | Inventory | Get Inventory, CDP Inventory, LLDP Inventory, SNMP Inventory, Verify SNMP User | Site Inventory |
 | Log Analysis | Interface Report, **Compare Configuration**, Security Health Check | โฟลเดอร์ log หรือ upload |
 | Catalyst Center / SD-WAN | **DNAC REST API** (เรียก API ไหนก็ได้), DNAC Port Assignment, SD-WAN Site List, Capture DNAC | เลือก endpoint ในฟอร์ม / CSV เฉพาะงาน / Site Inventory (Port Assignment) |
@@ -127,6 +133,37 @@ ode.exe'
 ในโฟลเดอร์ session มี `stage_<n>_<ip>_<hostname>.log` (คำสั่ง + output ทุกคำสั่ง), `job.log`, `session.json`
 และ `session_results.csv` ที่รวมผลของทุก stage – สถานะ session เก็บไว้ในไฟล์ จึงไม่หายถ้าปิด/เปิด App ใหม่
 
+ในตาราง Result **แถวล่าสุดอยู่บนสุด** (Stage 1 วิ่งเป็นชั่วโมง สิ่งที่เพิ่งเกิดคือสิ่งที่กำลังดู)
+
+### เก็บ Before / After ไว้เทียบกันต่อ
+
+ช่อง **Capture these commands (Stage 0 = before, Stage 5 = after)** – Stage 0 จะ run คำสั่งชุดนี้แล้วเก็บเป็น log ต่ออุปกรณ์ไว้ใน
+`<session>/before/` ส่วน Stage 5 เก็บไว้ใน `<session>/after/` **รูปแบบไฟล์เหมือนที่ Config Devices เขียนทุกอย่าง**
+(`[Command List]` + `--- <คำสั่ง> ---`) เพราะฉะนั้นจบงานแล้วเอา 2 โฟลเดอร์นี้ยัดเข้า **Compare Configuration** ได้เลย
+ว่า upgrade ครั้งนี้เปลี่ยนอะไรไปบ้าง
+
+**แยกชุดคำสั่งตาม Device Category ได้** – ใต้ช่องหลักมีกล่อง **Per Device Category** กางออกมาเป็นช่องละ 1 category
+ตามที่มีจริงใน Site Inventory (เช่น ASW, CORE, FB, FE, SS, VG, WLC) category ไหนใส่คำสั่งของตัวเองก็ใช้ชุดนั้น
+category ที่ปล่อยว่างใช้ชุดจากช่องบนสุด — WLC กับ access switch ไม่ต้องถามคำถามเดียวกัน
+
+ค่าเริ่มต้นของช่องบนสุด: `show version`, `show run`, `show inventory`, `show ip interface brief`,
+`show interfaces status`, `show cdp neighbors`, `show etherchannel summary`, `show switch` (ลบให้ว่างทั้งหมด = ไม่เก็บ)
+
+## IOS Upgrade – Stage 3 แบบ install mode: One-shot หรือ Manual
+
+เมื่อเลือก **Installation method = Install mode** จะมีช่อง **Install mode (Stage 3)** ให้เลือกอีกชั้น
+
+| แบบ | ปุ่มที่ได้ | คำสั่งที่ส่ง |
+|-----|-----------|--------------|
+| **One-shot** (ค่าเริ่มต้น) | `Stage 3: Install Image` ปุ่มเดียว | `boot system switch all flash:packages.conf` + `write memory` แล้ว<br>`install add file flash:<image> activate commit prompt-level none` |
+| **Manual** | 4 ปุ่ม กดทีละขั้น ตรวจผลก่อนไปขั้นถัดไป | **3a** `boot system switch all flash:packages.conf` (+ `write memory`)<br>**3b** `install add file flash:<image>`<br>**3c** `install activate prompt-level none` ← **ขั้นนี้ reload**<br>**3d** `install commit` |
+
+* เลือกแบบไหน ปุ่มอีกแบบจะหายไปเอง ไม่ต้องกลัวกดผิด (One-shot ไม่มีปุ่ม 3a–3d, Manual ไม่มีปุ่ม Stage 3)
+* ทุกปุ่มมี confirm บอกจำนวนอุปกรณ์ที่จะโดน และบอกว่าขั้นนั้น **reload หรือไม่**
+* **3d Commit สำคัญ** – `install activate` อย่างเดียวจะยังไม่ถาวร ถ้าไม่ `install commit` สวิตช์จะ **rollback กลับ image เก่าเอง**
+  (IOS-XE มี auto-abort timer) ข้อความหลังกด 3c จึงเตือนเรื่องนี้ไว้ และ One-shot มี `commit` อยู่ในคำสั่งเดียวอยู่แล้ว
+* 3a / 3c / 3d ไม่ต้องเลือกไฟล์ image (ทำงานกับของที่อยู่บน flash แล้ว) ส่วน 3b ต้องเลือกเพราะต้องใช้**ชื่อไฟล์**
+
 ## IOS Upgrade – Cleanup: ลบ image เก่าที่ไม่ได้ใช้ (`install remove inactive`)
 
 ใช้ตอน flash ไม่พอสำหรับ image ใหม่ แยกเป็น 2 ปุ่ม เพื่อให้ **เห็นรายชื่อไฟล์ก่อนแล้วค่อย confirm**
@@ -172,9 +209,13 @@ Command Runner (`legit-reads` + `read-request`) และ task / file
 3. **เทียบแยกทีละคำสั่ง** ตาม marker `--- show run ---` ที่ Config Devices เขียนไว้ – ได้ 1 แถวต่อ 1 คำสั่งที่เปลี่ยน
    (`Same` / `Changed` +กี่บรรทัด −กี่บรรทัด / `Only in Before` / `Only in After`) อุปกรณ์ที่ไม่เปลี่ยนอะไรเลยได้แถวเดียวว่า `(all commands) Same`
    ไฟล์ที่ไม่มี marker (log จากที่อื่น) เทียบทั้งไฟล์เหมือนเดิม
-4. กด **View** เปิดหน้าต่าง **เทียบ 2 ฝั่งแบบ MobaDiff / WinMerge** – before ซ้าย after ขวา มีเลขบรรทัดทั้งสองข้าง
+4. ตาราง Result **พับเป็น drop-down ต่ออุปกรณ์** – หัวข้อบอกชื่อเครื่องและสรุป (`6 row(s) · 6 Changed`) กดพับ/กางทีละตัว
+   หรือกด **Collapse all / Expand all** รวดเดียว site ที่มี 40 เครื่องจึงเป็น 40 บรรทัดให้ไล่ ไม่ใช่ 300 แถวให้เลื่อน
+5. กด **View** เปิดหน้าต่าง **เทียบ 2 ฝั่งแบบ MobaDiff / WinMerge** – before ซ้าย after ขวา มีเลขบรรทัดทั้งสองข้าง
    บรรทัดที่หายไป**ชมพู** บรรทัดที่เพิ่มมา**เขียว** ฝั่งที่ไม่มีคู่เป็นช่องเทา เลื่อนพร้อมกันทั้งสองฝั่ง
    ติ๊ก **Hide unchanged lines** เพื่อดูเฉพาะบรรทัดที่เปลี่ยน
+6. ในหน้าต่างนั้นมีปุ่ม **Previous / Next** พร้อมตัวนับ `3 of 20` – ไล่ดู diff ของทุกคำสั่งทุกเครื่องได้รวดเดียว
+   ไม่ต้องปิด-เปิดหน้าต่างทีละอัน (หัวข้อบอก `เครื่อง · IP · คำสั่ง` ที่กำลังดูอยู่)
 
 > **ทำไมต้องแยกตามคำสั่ง:** log backup 1 ไฟล์มักมี `show ip route ospf` ยาว 55,000 บรรทัด ซึ่งหลัง reload **อายุ route เปลี่ยนหมดทุกบรรทัด**
 > (`2w5d` → `00:05:13`) ถ้าเทียบทั้งไฟล์รวดเดียวจะได้ "ต่างกัน 58,000 บรรทัด" ซึ่งอ่านไม่ได้เลย พอแยกตามคำสั่งและข้ามคำสั่งที่ผันผวน

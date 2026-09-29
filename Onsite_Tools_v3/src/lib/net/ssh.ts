@@ -59,9 +59,17 @@ export function hostnameFromPrompt(prompt: string): string {
   return prompt.trim().replace(/^[<\[]/, "").replace(/[>#\]$%]\s*$/, "").replace(/\(.*\)$/, "").replace(/^.*@/, "").trim()
 }
 
+/**
+ * IOS prints at most 20 characters of the hostname in a prompt. A switch called SRI-Core-C9300-FL9-01
+ * answers "SRI-Core-C9300-FL9-01#" in exec mode but "SRI-Core-C9300-FL9-0(config)#" in config mode - the
+ * last character is gone. Matching on the full name made "configure terminal" wait for a prompt that could
+ * never arrive, and every run that configures anything (SCP push, boot variable, install) timed out.
+ */
+const PROMPT_HOST_MAX = 20
+
 /** Matches the device prompt in any mode (exec, enable, config sub-modes) at the end of the buffer. */
 export function promptRegex(prompt: string): RegExp {
-  const host = hostnameFromPrompt(prompt)
+  const host = hostnameFromPrompt(prompt).slice(0, PROMPT_HOST_MAX)
   if (!host) return /[>#\]$%]\s*$/
   return new RegExp(`(?:^|[\\r\\n])[<\\[]?(?:[\\w.-]+@)?${escapeRegExp(host)}[^\\r\\n]{0,60}[>#\\]$%]\\s*$`)
 }

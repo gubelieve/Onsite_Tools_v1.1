@@ -31,17 +31,45 @@ describe("tool registry", () => {
 
   it("the IOS runs that destroy something must be confirmed", () => {
     const runs = getTool("upgrade-ios")!.runs
-    expect(runs.map((r) => r.params?.stage)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
-    // Installing (reload) and deleting files from flash; listing what would be deleted is not one of them.
-    for (const i of [3, 7]) {
-      expect(runs[i], runs[i].label).toMatchObject({ danger: true })
-      expect(runs[i].confirm, runs[i].label).toBeTruthy()
+    const byId = Object.fromEntries(runs.map((r) => [r.id, r]))
+    expect(runs.map((r) => r.params?.stage)).toEqual([0, 1, 2, 3, 8, 9, 10, 11, 4, 5, 6, 7])
+    // Everything that reloads a device or deletes files from flash asks first.
+    for (const id of ["stage3", "stage3c", "cleanup-remove"]) {
+      expect(byId[id], id).toMatchObject({ danger: true })
+      expect(byId[id].confirm, id).toBeTruthy()
     }
-    expect(runs[6].danger).toBeFalsy()
-    expect(runs[6].confirm).toBeFalsy()
-    // Cleanup works on what is already on flash, so it must not demand an image on this PC.
-    for (const i of [6, 7]) expect(runs[i].optionalFields).toContain("iosFile")
+    // Reading is never behind a dialog; the manual steps that change something ask but are not "danger".
+    expect(byId["cleanup-list"].danger).toBeFalsy()
+    expect(byId["cleanup-list"].confirm).toBeFalsy()
+    for (const id of ["stage3a", "stage3b", "stage3d"]) {
+      expect(byId[id].confirm, id).toBeTruthy()
+      expect(byId[id].danger, id).toBeFalsy()
+    }
+    // Cleanup and the manual steps work on what is already on flash, so they must not demand an image on this PC.
+    for (const id of ["cleanup-list", "cleanup-remove", "stage3a", "stage3c", "stage3d"]) {
+      expect(byId[id].optionalFields, id).toContain("iosFile")
+    }
+    expect(byId["stage3b"].optionalFields).toBeUndefined() // "install add file flash:<name>" needs the name
     expect(flashName("C:\\ftp\\cat9k_iosxe 17.09.bin")).toBe("cat9k-iosxe-17.09.bin")
+  })
+
+  it("Stage 3 is either the one-shot button or the four manual ones, never both", () => {
+    const runs = getTool("upgrade-ios")!.runs
+    const manual = { installMethod: "install", installStyle: "manual" }
+    const shown = (state: Record<string, string>) => runs
+      .filter((r) => (!r.showIf || Object.entries(r.showIf).every(([k, v]) => state[k] === v))
+        && !(r.hideIf && Object.entries(r.hideIf).every(([k, v]) => state[k] === v)))
+      .map((r) => r.id)
+
+    expect(shown(manual)).toContain("stage3a")
+    expect(shown(manual)).not.toContain("stage3")
+    const others: Record<string, string>[] = [{ installMethod: "install", installStyle: "one-shot" }, { installMethod: "reload" }, {}]
+    for (const state of others) {
+      expect(shown(state), JSON.stringify(state)).toContain("stage3")
+      for (const id of ["stage3a", "stage3b", "stage3c", "stage3d"]) expect(shown(state), id).not.toContain(id)
+    }
+    // The mode picker only appears for install mode, where it means something.
+    expect(getTool("upgrade-ios")!.fields.find((f) => f.name === "installStyle")?.showIf).toEqual({ installMethod: "install" })
   })
 
   it("Config mode asks before it changes devices, Verify mode does not", () => {
@@ -53,6 +81,18 @@ describe("tool registry", () => {
     for (const id of ["get-inventory", "cdp-inventory", "client-status-checker"]) {
       for (const r of getTool(id)!.runs) expect(r.confirm, id).toBeFalsy()
     }
+  })
+
+  it("Config Devices gives each Device Category its own command list", () => {
+    const wlc = { host: "10.0.0.9", site: "WLC", deviceType: "", hostname: "", description: "", raw: {} }
+    const access = { host: "10.0.0.8", site: "ASW", deviceType: "", hostname: "", description: "", raw: {} }
+    const lists = { "*": "show version", WLC: "show ap summary\nshow wlan summary", ASW: "   " }
+    expect(commandsFor(wlc, lists, false)).toEqual(["show ap summary", "show wlan summary"])
+    expect(commandsFor(access, lists, false)).toEqual(["show version"])  // blank list of its own = use the default
+    // A device carrying its own command column still wins over the category list.
+    expect(commandsFor({ ...wlc, raw: { command: "show redundancy" } }, lists, true)).toEqual(["show redundancy"])
+    // ...but an empty column falls back instead of running nothing.
+    expect(commandsFor({ ...wlc, raw: { command: "  " } }, lists, true)).toEqual(["show ap summary", "show wlan summary"])
   })
 
   it("Config Devices picks per-device commands only when asked", () => {

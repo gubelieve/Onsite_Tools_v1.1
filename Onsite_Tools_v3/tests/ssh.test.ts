@@ -18,6 +18,16 @@ describe("prompt helpers", () => {
     expect(re.test("other-device#")).toBe(false)
   })
 
+  it("still matches when IOS cuts the hostname at 20 characters in a sub-mode", () => {
+    // Real failure: "Read timeout after 15s. Last output: … SRI-Core-C9300-FL9-0(config)#"
+    const re = promptRegex("SRI-Core-C9300-FL9-01#")
+    expect(re.test("SRI-Core-C9300-FL9-01#")).toBe(true)
+    expect(re.test("Enter configuration commands, one per line.\r\nSRI-Core-C9300-FL9-0(config)#")).toBe(true)
+    expect(re.test("SRI-Core-C9300-FL9-0(config-if)#")).toBe(true)
+    // 20 characters is still specific enough to tell two devices apart.
+    expect(re.test("OTHER-Core-C9300-FL9(config)#")).toBe(false)
+  })
+
   it("strips the echoed command and the trailing prompt", () => {
     expect(cleanOutput("show clock\r\n*10:15:01 ICT\r\nSW1#", "show clock")).toBe("*10:15:01 ICT")
   })
@@ -60,6 +70,20 @@ describe("SshSession against a fake Cisco device", () => {
       expect(dev.commands.slice(-4)).toEqual(["configure terminal", "hostname SW-LAB-01", "ntp server 10.0.0.1", "end"])
       expect(await s.send("show clock")).toContain("ICT") // back in exec mode and still in sync
     } finally { s.close() }
+  })
+
+  it("configures a device whose name is too long for the prompt", async () => {
+    // The switch this broke on. Config mode answers with a hostname one character short, and every
+    // stage that configures something (SCP push, boot system, install) timed out on it.
+    const long = await startFakeDevice({ hostname: "SRI-Core-C9300-FL9-01" })
+    try {
+      const s = await SshSession.open({ host: "127.0.0.1", port: long.port, username: "admin", password: "secret", deviceType: "cisco_ios" })
+      try {
+        await s.sendConfig(["ip scp server enable"])
+        expect(long.commands.slice(-3)).toEqual(["configure terminal", "ip scp server enable", "end"])
+        expect(await s.send("show clock")).toContain("ICT") // and it came back out of config mode in sync
+      } finally { s.close() }
+    } finally { await long.close() }
   })
 
   it("reports a wrong password as an authentication failure", async () => {
