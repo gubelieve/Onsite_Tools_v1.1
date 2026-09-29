@@ -2,7 +2,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import type { JobContext } from "../jobs"
-import { getDevices, countDevices, pickDevices, type ToolDevice } from "../inventory"
+import { getDevices, countDevices, pickDevices, type Selection, type ToolDevice } from "../inventory"
 import { SshSession, classifyError } from "../net/ssh"
 import { getSettings } from "../settings"
 import { safeName, stamp } from "../paths"
@@ -12,7 +12,7 @@ export { classifyError }
 
 /** Resolve the Site Inventory selection of a run, or explain what is missing. */
 export async function devicesFor(ctx: JobContext, params: Params): Promise<ToolDevice[]> {
-  const all = await getDevices(str(params.inventoryList, "All"), str(params.site, "All"))
+  const all = await getDevices(params.inventoryList as Selection, params.site as Selection)
   if (!all.length) {
     if ((await countDevices()) === 0) ctx.error("Site Inventory is empty. Open the 'Site Inventory' menu and import a device list first.")
     else ctx.warn("No devices in Site Inventory match the selected device list / device category.")

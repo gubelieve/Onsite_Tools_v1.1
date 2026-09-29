@@ -145,3 +145,29 @@ describe("SCP push", () => {
     expect(err?.message).toMatch(/Permission denied/)
   })
 })
+
+describe("when a transfer dies half way", () => {
+  it("keeps how far it got instead of reporting zero", async () => {
+    const { Stage } = await import("@/lib/tools/upgrade-ios")
+    const fs = await import("node:fs")
+    const os = await import("node:os")
+    const path = await import("node:path")
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "onsite-scp-fail-"))
+    const image = path.join(dir, "big.bin")
+    fs.writeFileSync(image, Buffer.alloc(4096))
+
+    const rows: Record<string, unknown>[] = []
+    const ctx = { addRow: (r: Record<string, unknown>) => { rows.push(r); return String(rows.length) },
+      updateRow: (k: string, patch: Record<string, unknown>) => { rows[Number(k) - 1] = { ...rows[Number(k) - 1], ...patch } },
+      progress: () => undefined, log: () => undefined, runDir: dir, stopRequested: false }
+    // Port 1 refuses the connection, so the push fails the way a reset does - with nothing sent.
+    const device = { host: "127.0.0.1:1", site: "LAB", deviceType: "cisco_ios", hostname: "SW", description: "", raw: {} }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await new Stage(ctx as any, { username: "admin", password: "secret", transferMethod: "scp" }, device, 1, image, "127.0.0.1").run()
+
+    const last = rows.at(-1)!
+    expect(String(last.Status)).toBe("Failed")
+    expect(String(last.Message)).toMatch(/Connection failed|SCP failed/)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+})

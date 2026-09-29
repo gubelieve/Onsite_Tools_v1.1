@@ -7,6 +7,7 @@ import { Badge } from "@astryxdesign/core/Badge"
 import { Button } from "@astryxdesign/core/Button"
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
 import { NumberInput } from "@astryxdesign/core/NumberInput"
+import { MultiSelector } from "@astryxdesign/core/MultiSelector"
 import { Selector } from "@astryxdesign/core/Selector"
 import { TextArea } from "@astryxdesign/core/TextArea"
 import { TextInput } from "@astryxdesign/core/TextInput"
@@ -14,7 +15,7 @@ import { useToast } from "@astryxdesign/core/Toast"
 import { DevicePreview, type PreviewDevice } from "@/components/device-preview"
 import { JobPanel } from "@/components/job-panel"
 import { Panel } from "@/components/page-header"
-import type { FieldDef, PublicTool, RunDef } from "@/lib/tools/types"
+import { ANY_CATEGORY, type FieldDef, type PublicTool, type RunDef } from "@/lib/tools/types"
 
 type Values = Record<string, unknown>
 interface HistoryItem { id: string; runLabel: string; status: string; created: string; rowCount: number }
@@ -84,25 +85,39 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
   // null = every device of the list/category selection; a set = only the devices ticked in the form.
   const [picked, setPicked] = React.useState<Set<string> | null>(null)
 
-  const list = String(values.inventoryList ?? "All"), site = String(values.site ?? "All")
+  // Both pickers take several values; nothing picked means every list / every category.
+  const chosen = (name: string): string[] => {
+    const v = values[name]
+    return Array.isArray(v) ? v.map(String).filter((x) => x && x !== "All") : v && v !== "All" ? [String(v)] : []
+  }
+  const list = chosen("inventoryList"), site = chosen("site")
+  const query = [...list.map((l) => `list=${encodeURIComponent(l)}`), ...site.map((s) => `site=${encodeURIComponent(s)}`)].join("&")
   React.useEffect(() => {
     if (!usesInventory) return
     let alive = true
-    fetch(`/api/inventory/options?list=${encodeURIComponent(list)}&site=${encodeURIComponent(site)}`, { cache: "no-store" })
-      .then((r) => r.json()).then((d) => {
+    fetch(`/api/inventory/options?${query}`, { cache: "no-store" })
+      .then((r) => r.json()).then((d: Options) => {
         if (!alive) return
         setInv(d)
         setPicked(null) // a different list or category is a different set of devices - start from all of them
-        if (list !== "All" && !d.lists.includes(list)) set("inventoryList", "All")
-        if (site !== "All" && !d.sites.includes(site)) set("site", "All")
+        // A list or category that no longer exists (a re-import) drops out instead of returning nothing.
+        const keepLists = list.filter((l) => d.lists.includes(l))
+        const keepSites = site.filter((s) => d.sites.includes(s))
+        if (keepLists.length !== list.length) set("inventoryList", keepLists)
+        if (keepSites.length !== site.length) set("site", keepSites)
       }).catch(() => undefined)
     return () => { alive = false }
-  }, [usesInventory, list, site])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usesInventory, query])
 
   const visible = (f: FieldDef) => !f.showIf || Object.entries(f.showIf).every(([k, v]) => String(values[k] ?? "") === v)
 
   /** How many devices this run would touch - shown in a confirmation so nobody guesses. */
   const deviceCount = picked ? picked.size : inv?.count ?? 0
+  /** Some runs only make sense in one mode - a manual install step has no place when the form says one-shot. */
+  const matches = (cond?: Record<string, string>) => Boolean(cond) && Object.entries(cond!).every(([k, v]) => String(values[k] ?? "") === v)
+  const runVisible = (r: RunDef) => (!r.showIf || matches(r.showIf)) && !(r.hideIf && matches(r.hideIf))
+
   /** A run asks first when it always asks (confirm / notice) or when the form is in the state it asks about. */
   const needsAsking = (r: RunDef) =>
     Boolean(r.notice) || (Boolean(r.confirm) && (!r.confirmIf || Object.entries(r.confirmIf).every(([k, v]) => String(values[k] ?? "") === v)))
@@ -180,6 +195,34 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
         return <NumberInput {...common} value={Number(v) || 0} min={f.min} max={f.max} onChange={(x) => set(f.name, Number(x) || 0)} />
       case "textarea":
         return <TextArea {...common} value={String(v ?? "")} rows={f.rows ?? 4} placeholder={f.placeholder} onChange={(x) => set(f.name, x)} hasSpellCheck={false} />
+      case "commandsPerCategory": {
+        // One box for everything, plus a box per Device Category for the ones that need different commands
+        // (a WLC and an access switch are not worth asking the same questions).
+        const byCategory: Record<string, string> = v && typeof v === "object" ? { ...(v as Record<string, string>) } : { [ANY_CATEGORY]: String(v ?? "") }
+        const setOne = (key: string, text: string) => set(f.name, { ...byCategory, [key]: text })
+        const categories = (inv?.sites ?? []).filter((c) => c && c !== "All")
+        const own = categories.filter((c) => (byCategory[c] ?? "").trim())
+        return (
+          <div>
+            <TextArea label={f.label} value={byCategory[ANY_CATEGORY] ?? ""} rows={f.rows ?? 4} hasSpellCheck={false}
+              description="Used by every Device Category that has no list of its own." onChange={(x) => setOne(ANY_CATEGORY, x)} />
+            {categories.length > 0 && (
+              <details className="mt-2 rounded-lg border px-3 py-2" open={own.length > 0}>
+                <summary className="cursor-pointer text-sm font-medium">
+                  Per Device Category{own.length ? ` — ${own.length} of ${categories.length} have their own list` : ` (${categories.length})`}
+                </summary>
+                <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {categories.map((c) => (
+                    <TextArea key={c} label={c} value={byCategory[c] ?? ""} rows={3} hasSpellCheck={false}
+                      placeholder="empty = use the list above" onChange={(x) => setOne(c, x)} />
+                  ))}
+                </div>
+              </details>
+            )}
+            {f.help && <p className="text-muted-foreground mt-1 text-xs">{f.help}</p>}
+          </div>
+        )
+      }
       case "checkbox":
         return <CheckboxInput {...common} value={Boolean(v)} onChange={(x) => set(f.name, x)} />
       case "select": {
@@ -189,6 +232,17 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
           : f.options === "deviceTypes" ? deviceTypes.map((x) => ({ value: x, label: x })) : f.options ?? []
         // The device count and the devices themselves are shown once, under the whole form (DevicePreview).
         return <Selector {...common} options={options} value={String(v ?? "")} onChange={(x) => set(f.name, x)} hasSearch={options.length > 12} />
+      }
+      case "multiSelect": {
+        const options = (f.source?.type === "inventoryLists" ? inv?.lists : f.source?.type === "inventorySites" ? inv?.sites : [])
+          ?.map((x) => ({ value: x, label: x })) ?? []
+        const value = Array.isArray(v) ? v.map(String).filter((x) => x && x !== "All") : v && v !== "All" ? [String(v)] : []
+        // Nothing picked = everything, which is what the placeholder says and what the server does with an empty list.
+        return (
+          <MultiSelector label={f.label} description={f.help} isRequired={f.required} options={options} value={value}
+            onChange={(x) => set(f.name, x)} placeholder={f.placeholder ?? "All"} hasSearch={options.length > 8}
+            hasSelectAll hasClear triggerDisplay="badges" maxBadges={4} />
+        )
       }
       case "file": case "files":
         return (
@@ -243,7 +297,7 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
           )}
         </div>
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          {tool.runs.map((r) => (
+          {tool.runs.filter(runVisible).map((r) => (
             <Button key={r.id} label={r.label} variant={r.danger ? "destructive" : "primary"} isDisabled={busy} icon={<Play className="h-3.5 w-3.5" />}
               onClick={() => (needsAsking(r) ? setPending(r) : void start(r))} />
           ))}

@@ -3,15 +3,21 @@ import type { ToolDevice } from "../inventory"
 import { escapeRegExp } from "../net/ssh"
 import { classifyError, devicesFor, openSession, saveDeviceLog } from "./common"
 import { LLDP_FIELDS, parseCdp, parseInventory, parseLldp, parseSnmpCommunities, parseSnmpUsers } from "./parsers"
-import { bool, COMMON_DEVICE_FIELDS, num, str, type ToolDef } from "./types"
+import { bool, commandsForCategory, COMMON_DEVICE_FIELDS, num, str, type ToolDef } from "./types"
 
 // ------------------------------------------------------------------ Config Devices
 const BASE_COLUMNS = ["IP Address", "Hostname", "Status", "Failure Reason", "Disconnect Status"]
 
-export function commandsFor(device: ToolDevice, commands: string, perDevice: boolean): string[] {
-  let text = ""
-  if (perDevice) text = Object.entries(device.raw).find(([k]) => ["command", "commands"].includes(k.toLowerCase()))?.[1] ?? ""
-  return (text || commands || "").split(/\r?\n/).map((c) => c.trim()).filter(Boolean)
+/**
+ * The commands one device gets: its own "command" column when that option is on, otherwise the list for its
+ * Device Category, otherwise the list that covers the rest.
+ */
+export function commandsFor(device: ToolDevice, commands: unknown, perDevice: boolean): string[] {
+  if (perDevice) {
+    const own = Object.entries(device.raw).find(([k]) => ["command", "commands"].includes(k.toLowerCase()))?.[1] ?? ""
+    if (own.trim()) return own.split(/\r?\n/).map((c) => c.trim()).filter(Boolean)
+  }
+  return commandsForCategory(commands, device.site)
 }
 
 export const configDevices: ToolDef = {
@@ -19,8 +25,9 @@ export const configDevices: ToolDef = {
   description: "Run verification or configuration commands on many devices from Site Inventory. Each command gets its own result column.",
   fields: [
     ...COMMON_DEVICE_FIELDS,
-    { name: "commands", label: "Commands (one per line)", type: "textarea", rows: 5, placeholder: "show version\nshow ip interface brief",
-      help: "Sent to every selected device." },
+    { name: "commands", label: "Commands (one per line)", type: "commandsPerCategory", rows: 5,
+      help: "Sent to every selected device. A Device Category with its own list uses it - a WLC and an access switch " +
+        "rarely want the same commands - and the rest use the box at the top." },
     { name: "perDeviceCommands", label: "Use per-device 'command' column from Site Inventory", type: "checkbox", default: false, width: "half",
       help: "Import a list with a 'command' column. Devices without a command fall back to the text box." },
     { name: "mode", label: "Mode", type: "select", default: "Verify mode", width: "half",
@@ -35,7 +42,7 @@ export const configDevices: ToolDef = {
     const devices = await devicesFor(ctx, params)
     if (!devices.length) return
     const perDevice = bool(params.perDeviceCommands)
-    const commandText = str(params.commands)
+    const commandText = params.commands
     const allCommands = [...new Set(devices.flatMap((d) => commandsFor(d, commandText, perDevice)))]
     if (!allCommands.length) { ctx.error("Please enter a command to run (or import a list with a 'command' column and tick the option)."); return }
     const configMode = str(params.mode) === "Config mode"

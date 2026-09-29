@@ -12,14 +12,26 @@ import { noInboundHint } from "../net/firewall"
 import { SingleFileFtpServer } from "../net/ftp-server"
 import { scpPush } from "../net/scp"
 import { SshSession } from "../net/ssh"
-import { hms, safeName } from "../paths"
+import { ensureDir, hms, safeName, stamp } from "../paths"
 import { appendRun, openSession as openRunSession } from "../session"
 import { localIp } from "../settings"
 import { devicesFor, openSession } from "./common"
-import { INVENTORY_FIELDS, num, str, type Params, type ToolDef } from "./types"
+import { ANY_CATEGORY, commandsForCategory, INVENTORY_FIELDS, num, str, type Params, type ToolDef } from "./types"
+
+export const DEFAULT_CAPTURE = [
+  "show version",
+  "show run",
+  "show inventory",
+  "show ip interface brief",
+  "show interfaces status",
+  "show cdp neighbors",
+  "show etherchannel summary",
+  "show switch",
+]
 
 const STAGES = ["Verify Environment", "Upload IOS", "Verify MD5", "Install Image", "Check Status", "Verify Services",
-  "List Inactive Images", "Remove Inactive Images"]
+  "List Inactive Images", "Remove Inactive Images",
+  "Config boot system", "Install add file", "Install activate", "Install commit"]
 // "Progress" holds a percentage; the results table draws it as a bar (see job-panel).
 const COLUMNS = ["Stage", "Host", "Hostname", "Status", "Progress", "Message", "Bytes Transferred", "Output", "Timestamp"]
 
@@ -38,7 +50,8 @@ const hms2 = (secs: number) => {
 
 /** The two cleanup runs are not part of the 0-5 sequence, so they are named rather than numbered. */
 export const stageLabel = (stage: number) =>
-  stage <= 5 ? `Stage ${stage}` : stage === 6 ? "Cleanup (list)" : "Cleanup (remove)"
+  stage <= 5 ? `Stage ${stage}` : stage === 6 ? "Cleanup (list)" : stage === 7 ? "Cleanup (remove)"
+    : ["Stage 3a", "Stage 3b", "Stage 3c", "Stage 3d"][stage - 8] ?? `Stage ${stage}`
 
 function md5Of(file: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -165,7 +178,8 @@ export class Stage {
     } catch (e) { this.emit("Failed", `Connection failed: ${(e as Error).message}`); return }
     try {
       await [this.verifyEnvironment, this.upload, this.verifyMd5, this.install, this.checkStatus, this.verifyServices,
-        this.listInactive, this.removeInactive][this.stage].call(this, s)
+        this.listInactive, this.removeInactive,
+        this.bootSystem, this.installAdd, this.installActivate, this.installCommit][this.stage].call(this, s)
     } catch (e) {
       this.emit("Failed", `${stageLabel(this.stage)} failed: ${(e as Error).message}`, "0", String((e as Error).stack ?? e))
     } finally { s.close() }
@@ -201,6 +215,7 @@ export class Stage {
 
     const summ = await this.run1(s, "show install summary")
     this.emit("Pass", "Install summary: " + (this.installInfo(summ) || "No packages found"), "0", summ)
+    await this.capture(s, "before")
     this.emit("Completed", "Environment verification completed", "0", "See the rows above for each check")
   }
 
@@ -286,12 +301,13 @@ export class Stage {
     }
     this.transfer("Running", `SCP push -> ${filename} (IOS SCP is slower than FTP)`, 0, size)
     const [host, port] = /^[^:]+:\d+$/.test(this.device.host) ? this.device.host.split(":") : [this.device.host, ""]
-    let last = 0
+    let last = 0, sentSoFar = 0
     try {
       await scpPush({
         host, port: Number(port) || 22, username: str(this.params.username), password: str(this.params.password),
         localFile: this.iosFile, remotePath: `flash:${filename}`, shouldStop: () => this.ctx.stopRequested,
         onProgress: (sent) => {
+          sentSoFar = sent
           if (Date.now() - last < 1000) return // one update a second is enough for a bar
           last = Date.now()
           this.transfer("Running", `Uploading: ${this.progressText(sent, size)}`, sent, size)
@@ -300,8 +316,13 @@ export class Stage {
       this.logCmd(`scp ${baseName(this.iosFile)} -> flash:${filename}`, out + "\nSCP transfer completed")
       this.transfer("Completed", `IOS uploaded via SCP (${mb(size)} MB in ${hms2((Date.now() - this.startedAt) / 1000)}) - verify with Stage 2`, size, size, out)
     } catch (e) {
-      this.logCmd(`scp -> flash:${filename}`, `${out}\n${(e as Error).message}`, "Failed")
-      this.transfer("Failed", `SCP failed: ${(e as Error).message}`, 0, size, out)
+      // How far it got is the first thing anyone asks after a transfer dies an hour in - keep it.
+      const how = sentSoFar
+        ? ` after ${this.progressText(sentSoFar, size)}. The device has a partial flash:${filename}; delete it before retrying, ` +
+          "or use the built-in FTP server, which is faster than IOS SCP."
+        : " before any data moved - check that the user has privilege 15 and that 'ip scp server enable' took effect."
+      this.logCmd(`scp -> flash:${filename}`, `${out}\n${(e as Error).message}\nsent ${sentSoFar} of ${size} bytes`, "Failed")
+      this.transfer("Failed", `SCP failed: ${(e as Error).message}${how}`, sentSoFar, size, out)
     }
   }
 
@@ -340,6 +361,51 @@ export class Stage {
     this.logCmd(`boot system flash:${filename}`, out)
   }
 
+  // ---------------------------------------------- install mode, one step per button
+  /** `boot system switch all flash:packages.conf`, saved - the box has to boot the packages file afterwards. */
+  private async bootSystem(s: SshSession) {
+    const cmd = "boot system switch all flash:packages.conf"
+    const out = (await s.sendConfig([cmd])) + (await s.saveConfig())
+    this.logCmd(cmd, out)
+    this.emit("Completed", "Boot system set to flash:packages.conf and written to startup-config", "0", out)
+  }
+
+  /** `install add file flash:<image>` - unpacks the image into the install repository. No reload. */
+  private async installAdd(s: SshSession) {
+    const cmd = `install add file flash:${flashName(this.iosFile)}`
+    const out = await s.send(cmd, { timeoutSec: 2400 }).catch((e) => `[${(e as Error).message}]`)
+    this.logCmd(cmd, out, /FAILED|%\s*Error/i.test(out) ? "Failed" : "Completed")
+    if (/FAILED|%\s*Error/i.test(out) && !/SUCCESS/i.test(out)) {
+      this.emit("Failed", "install add failed - read the output (flash space, or the file is not on flash)", "0", out)
+      return
+    }
+    this.emit("Completed", "Image added to the install repository. Next: Stage 3c activates it and reloads.", "0", out)
+  }
+
+  /** `install activate prompt-level none` - this is the one that reloads the device. */
+  private async installActivate(s: SshSession) {
+    const cmd = "install activate prompt-level none"
+    let out = await s.sendTiming(cmd, 3000, 60000)
+    // prompt-level none should not ask, but a stack member sometimes still wants a confirmation.
+    if (/\[y\/n\]|\[yes\/no\]|proceed|confirm/i.test(out) && !s.endsWithPrompt(out)) out += await s.sendTiming("y", 3000, 30000)
+    if (!s.endsWithPrompt(out)) out += await s.waitForPrompt(600).catch(() => "\n[session closed - the device is reloading]")
+    this.logCmd(cmd, out)
+    this.emit("Completed", "Activate issued - the device reloads now. When it is back, run Stage 3d (commit): " +
+      "without a commit the switch rolls back to the old image by itself.", "0", out)
+  }
+
+  /** `install commit` - makes the activated image permanent, so the auto-rollback timer stops. */
+  private async installCommit(s: SshSession) {
+    const cmd = "install commit"
+    const out = await s.send(cmd, { timeoutSec: 900 }).catch((e) => `[${(e as Error).message}]`)
+    this.logCmd(cmd, out, /FAILED|%\s*Error/i.test(out) ? "Failed" : "Completed")
+    if (/FAILED|%\s*Error/i.test(out) && !/SUCCESS/i.test(out)) {
+      this.emit("Failed", "install commit failed - the device may still roll back, check 'show install summary'", "0", out)
+      return
+    }
+    this.emit("Completed", "Install committed - the new image is now permanent", "0", out)
+  }
+
   private async checkStatus(s: SshSession) {
     const out = await this.run1(s, "show version")
     const ver = /Version\s+([^,\s]+)/.exec(out)?.[1] ?? "unknown"
@@ -353,7 +419,40 @@ export class Stage {
     const summ = await this.run1(s, "show install summary")
     outs.push(`--- show install summary ---\n${summ}`, `--- Install Status ---\n${this.installInfo(summ) || "No packages found"}`)
     const down = (outs[1].match(/\s(administratively down|down)\s/g) ?? []).length
+    await this.capture(s, "after")
     this.emit("Completed", `Services verified${down ? ` (${down} interface line(s) down)` : ""}`, "0", outs.join("\n"))
+  }
+
+  /**
+   * The "before" and "after" of the upgrade, written exactly the way Config Devices writes its logs
+   * (a [Command List] followed by "--- <command> ---" sections) and into session/before/ and session/after/ -
+   * so Compare Configuration can be pointed straight at those two folders afterwards.
+   */
+  private async capture(s: SshSession, which: "before" | "after") {
+    // Each Device Category can ask for its own commands; a category without a list of its own uses "*".
+    const commands = commandsForCategory(this.params.captureCommands, this.device.site)
+    if (!commands.length) return
+    const parts = ["[Command List]", ...commands, ""]
+    let failed = 0
+    for (const cmd of commands) {
+      if (this.ctx.stopRequested) break
+      try {
+        parts.push(`--- ${cmd} ---`, await s.send(cmd, { timeoutSec: 300 }), "")
+      } catch (e) {
+        failed++
+        parts.push(`--- ${cmd} ---`, `[error: ${(e as Error).message}]`, "")
+      }
+    }
+    try {
+      const dir = ensureDir(path.join(this.ctx.runDir, which))
+      const file = path.join(dir, `${safeName(this.hostname)}-${safeName(this.device.host)}_${stamp()}.log`)
+      fs.writeFileSync(file, parts.join("\n"), "utf8")
+      this.emit(failed ? "Warning" : "Pass",
+        `Captured ${commands.length - failed}/${commands.length} command(s) into ${which}/ - point Compare Configuration at this folder`,
+        "0", file)
+    } catch (e) {
+      this.emit("Warning", `Could not write the ${which} capture: ${(e as Error).message}`)
+    }
   }
 
   // --------------------------------------------------------------------- flash cleanup
@@ -420,6 +519,11 @@ export const upgradeIos: ToolDef = {
     { name: "username", label: "Username", type: "text", required: true, width: "half", defaultFrom: "username", remember: true },
     { name: "password", label: "Password", type: "password", required: true, width: "half", remember: true },
     { name: "deviceType", label: "Device type", type: "select", default: "cisco_ios", options: "deviceTypes", width: "half" },
+    { name: "installStyle", label: "Install mode (Stage 3)", type: "select", default: "one-shot", width: "half",
+      showIf: { installMethod: "install" },
+      options: [{ value: "one-shot", label: "One-shot — add + activate + commit in one command" },
+        { value: "manual", label: "Manual — one button per step (boot system → add → activate → commit)" }],
+      help: "Manual lets each step be checked before the next one. Only the activate step reloads the device." },
     { name: "installMethod", label: "Installation method", type: "select", default: "reload", width: "half",
       options: [{ value: "reload", label: "Reload (boot system + reload)" }, { value: "boot", label: "Boot variable change only" },
         { value: "install", label: "Install mode (install add ... activate commit)" }] },
@@ -433,15 +537,40 @@ export const upgradeIos: ToolDef = {
     { name: "ftpIpExternal", label: "External FTP server IP", type: "text", width: "half", defaultFrom: "localIp",
       showIf: { transferMethod: "ftp-external" }, help: "Anonymous FTP, or configure 'ip ftp username / password' on the devices." },
     { name: "threads", label: "Max parallel sessions", type: "number", default: 3, min: 1, max: 10, width: "half" },
+    { name: "captureCommands", label: "Capture these commands (Stage 0 = before, Stage 5 = after)", type: "commandsPerCategory",
+      rows: 4, default: { [ANY_CATEGORY]: DEFAULT_CAPTURE.join("\n") },
+      help: "Saved per device into <session>/before/ and <session>/after/, in the same format Config Devices writes - " +
+        "point Compare Configuration at those two folders to see exactly what the upgrade changed. " +
+        "A Device Category with its own list uses it; the rest use the box at the top. Empty = capture nothing." },
   ],
   columns: COLUMNS,
   session: true,
+  // Stage 1 runs for an hour and Stage 0 writes a dozen checks - the newest line belongs at the top.
+  latestFirst: true,
   runs: [
     { id: "stage0", label: "Stage 0: Verify Environment", params: { stage: 0 } },
     { id: "stage1", label: "Stage 1: Upload IOS", params: { stage: 1 } },
     { id: "stage2", label: "Stage 2: Verify MD5", params: { stage: 2 } },
     { id: "stage3", label: "Stage 3: Install Image", params: { stage: 3 }, danger: true,
+      // Replaced by the four buttons below when install mode is driven by hand.
+      hideIf: { installMethod: "install", installStyle: "manual" },
       confirm: "WARNING: this installs the new IOS image on ALL selected devices. Devices will reload and service will be interrupted. Proceed?" },
+    { id: "stage3a", label: "Stage 3a: Config boot system", params: { stage: 8 }, optionalFields: ["iosFile"],
+      showIf: { installMethod: "install", installStyle: "manual" },
+      confirm: "Sets 'boot system switch all flash:packages.conf' on {count} device(s) and writes the startup-config. " +
+        "Nothing reloads. Proceed?" },
+    { id: "stage3b", label: "Stage 3b: Add file", params: { stage: 9 },
+      showIf: { installMethod: "install", installStyle: "manual" },
+      confirm: "Runs 'install add file flash:<image>' on {count} device(s). It unpacks the image into the install " +
+        "repository and can take several minutes; nothing reloads yet. Proceed?" },
+    { id: "stage3c", label: "Stage 3c: Activate", params: { stage: 10 }, optionalFields: ["iosFile"], danger: true,
+      showIf: { installMethod: "install", installStyle: "manual" },
+      confirm: "WARNING: 'install activate prompt-level none' RELOADS {count} device(s) now and service is interrupted. " +
+        "After they come back, run Stage 3d (commit) - without it the switch rolls back to the old image by itself. Proceed?" },
+    { id: "stage3d", label: "Stage 3d: Commit", params: { stage: 11 }, optionalFields: ["iosFile"],
+      showIf: { installMethod: "install", installStyle: "manual" },
+      confirm: "Runs 'install commit' on {count} device(s), which makes the activated image permanent and stops the " +
+        "automatic rollback. Run it only after the devices are back up. Proceed?" },
     { id: "stage4", label: "Stage 4: Check Status", params: { stage: 4 } },
     { id: "stage5", label: "Stage 5: Verify Services", params: { stage: 5 } },
     // Flash cleanup. Listing needs no image file and deletes nothing, so it is safe to press at any time.
@@ -452,10 +581,12 @@ export const upgradeIos: ToolDef = {
         "Run 'Cleanup: list inactive images' first to see exactly which files will be deleted. Proceed?" },
   ],
   async run(ctx, params) {
-    const stage = Math.min(7, Math.max(0, Number(params.stage) || 0))
+    const stage = Math.min(11, Math.max(0, Number(params.stage) || 0))
     const iosFile = str(params.iosFile).trim().replace(/^"|"$/g, "")
-    // The cleanup runs work on what is already on flash - they need no image on this PC.
+    // The cleanup and manual install steps work on what is already on flash - they need no image on this PC.
     if (stage <= 5 && (!fs.existsSync(iosFile) || !fs.statSync(iosFile).isFile())) { ctx.error(`IOS image file not found: ${iosFile}`); return }
+    // "install add file flash:<name>" only needs the name, but it has to come from somewhere.
+    if (stage === 9 && !iosFile) { ctx.error("Pick the IOS image first - its file name is what goes into 'install add file flash:…'."); return }
     const devices = await devicesFor(ctx, params)
     if (!devices.length) return
     // One upgrade = one session: every stage writes into the same folder and keeps the rows of the stages

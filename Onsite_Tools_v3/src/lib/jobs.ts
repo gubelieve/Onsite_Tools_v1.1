@@ -8,6 +8,7 @@ import path from "node:path"
 import { randomUUID } from "node:crypto"
 import prisma from "./prisma"
 import { hms, LOGS_DIR, ensureDir, makeRunDir } from "./paths"
+import { TOOLS } from "./tools"
 import type { Params, ToolDef } from "./tools/types"
 
 export type JobStatus = "queued" | "running" | "done" | "stopped" | "error"
@@ -18,6 +19,8 @@ export interface JobSnapshot {
   toolId: string
   toolName: string
   runLabel: string
+  latestFirst: boolean
+  groupBy: string
   status: JobStatus
   created: string
   finished: string | null
@@ -59,11 +62,11 @@ class Job {
   runDir: string | null = null
   stop = false
 
-  constructor(public toolId: string, public toolName: string, public runLabel: string) {}
+  constructor(public toolId: string, public toolName: string, public runLabel: string, public latestFirst = false, public groupBy = "") {}
 
   snapshot(): JobSnapshot {
     return {
-      id: this.id, toolId: this.toolId, toolName: this.toolName, runLabel: this.runLabel, status: this.status,
+      id: this.id, toolId: this.toolId, toolName: this.toolName, runLabel: this.runLabel, latestFirst: this.latestFirst, groupBy: this.groupBy, status: this.status,
       created: this.created, finished: this.finished, version: this.version, columns: [...this.columns],
       exportColumns: this.exportColumns,
       rows: [...this.rows].map(([k, r]) => ({ ...r, _key: k })),
@@ -155,7 +158,7 @@ class JobManager {
   private jobs = new Map<string, Job>()
 
   start(tool: ToolDef, params: Params, runLabel: string): string {
-    const job = new Job(tool.id, tool.name, runLabel)
+    const job = new Job(tool.id, tool.name, runLabel, tool.latestFirst ?? false, tool.groupBy ?? "")
     this.jobs.set(job.id, job)
     this.evict()
     void this.execute(tool, job, params)
@@ -212,7 +215,12 @@ class JobManager {
     const live = this.jobs.get(id)
     if (live) return live.snapshot()
     const saved = await prisma.jobRun.findUnique({ where: { id } })
-    return saved ? (JSON.parse(saved.snapshot) as JobSnapshot) : null
+    if (!saved) return null
+    const snap = JSON.parse(saved.snapshot) as JobSnapshot
+    // How a result is laid out is not part of what the run found: a run saved before the newest-first
+    // ordering or the per-device grouping existed still gets today's presentation.
+    const tool = TOOLS.find((t) => t.id === snap.toolId)
+    return { ...snap, latestFirst: snap.latestFirst ?? tool?.latestFirst ?? false, groupBy: snap.groupBy ?? tool?.groupBy ?? "" }
   }
 
   stop(id: string): boolean {

@@ -355,6 +355,8 @@ export const compareConfig: ToolDef = {
         "rotated - only the value is hidden, so the diff is safe to send on." },
   ],
   columns: COLUMNS,
+  // One drop-down per device: a site of 40 switches is 40 lines to open, not 300 rows to scroll.
+  groupBy: "Device",
   runs: [{ id: "run", label: "Compare" }],
   async run(ctx, params) {
     const clean = (v: unknown) => str(v).trim().replace(/^"|"$/g, "")
