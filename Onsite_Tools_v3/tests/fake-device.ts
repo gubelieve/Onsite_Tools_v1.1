@@ -3,7 +3,7 @@ import crypto from "node:crypto"
 import { Server, type Connection } from "ssh2"
 import { FtpClient } from "./ftp-client"
 
-export interface FakeDevice { port: number; commands: string[]; flash: Map<string, Buffer>; inactive: string[]; close: () => Promise<void> }
+export interface FakeDevice { port: number; commands: string[]; flash: Map<string, Buffer>; inactive: string[]; installed: string[]; close: () => Promise<void> }
 
 const RESPONSES: Record<string, string> = {
   "show version": "Cisco IOS XE Software, Version 17.09.04a\nSW-LAB-01 uptime is 3 weeks\nROM: IOS-XE ROMMON",
@@ -29,6 +29,7 @@ export function startFakeDevice(
   // Files "install remove inactive" offers to delete; answering y empties this list and frees the space.
   const inactive = [...(o.inactive ?? INACTIVE)]
   let freeBytes = 200 * 1024 * 1024
+  const installed: string[] = []
   const clients = new Set<Connection>()
 
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
@@ -64,7 +65,9 @@ export function startFakeDevice(
             }
             ch.write(prompt())
           }
-          const prompt = () => `${hostname}${config ? "(config)" : ""}#`
+          // Like IOS: the hostname in a prompt is cut to 20 characters, which only shows once a mode is
+          // appended - "SRI-Core-C9300-FL9-01#" in exec, "SRI-Core-C9300-FL9-0(config)#" in config.
+          const prompt = () => (config ? `${hostname.slice(0, 20)}(config)#` : `${hostname}#`)
           ch.write(`\r\nWelcome to the lab\r\n\r\n${prompt()}`)
           ch.on("data", (d: Buffer) => {
             for (const c of d.toString("utf8")) {
@@ -83,6 +86,22 @@ export function startFakeDevice(
                   inactive.length = 0
                 } else ch.write("install_remove: ABORT\r\n")
                 ch.write(prompt())
+                return
+              }
+              // The install-mode commands, each answering the way IOS-XE does.
+              if (/^install add file /.test(cmd)) {
+                ch.write(["install_add: START", `image file: flash:${cmd.split("flash:")[1]}`, "SUCCESS: install_add", prompt()].join("\r\n"))
+                installed.push(cmd)
+                return
+              }
+              if (/^install activate/.test(cmd)) {
+                ch.write(["install_activate: START", "SUCCESS: install_activate", prompt()].join("\r\n"))
+                installed.push(cmd)
+                return
+              }
+              if (cmd === "install commit") {
+                ch.write(["install_commit: START", "SUCCESS: install_commit", prompt()].join("\r\n"))
+                installed.push(cmd)
                 return
               }
               if (cmd === "install remove inactive") {
@@ -115,7 +134,7 @@ export function startFakeDevice(
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
       const port = (server.address() as { port: number }).port
-      resolve({ port, commands, flash, inactive, close: () => new Promise((r) => { clients.forEach((c) => c.end()); server.close(() => r()) }) })
+      resolve({ port, commands, flash, inactive, installed, close: () => new Promise((r) => { clients.forEach((c) => c.end()); server.close(() => r()) }) })
     })
   })
 }
