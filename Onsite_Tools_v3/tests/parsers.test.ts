@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { findCol, parseCsv, toCsv } from "@/lib/csv"
-import { dedupeByIp, mapRows, pickDevices } from "@/lib/inventory"
+import { dedupeByIp, mapRows, pickDevices, selected } from "@/lib/inventory"
 import { detectModel, detectVersion, hostnameFromLogName, imageType, infoFromLogName, parseCdp, parseInterfaces, parseInventory,
   parseLldp, parseSnmpCommunities, parseSnmpUsers, searchConfig, versionFromDescr } from "@/lib/tools/parsers"
 
@@ -146,5 +146,19 @@ describe("device output parsers", () => {
     expect(searchConfig(CONFIG, "hostname")).toBe("SW-EDGE-01")
     const text = 'NAME: "Chassis", DESCR: "Cisco Catalyst 9500"\nPID: C9500-24Y4C , VID: V02\nCisco IOS XE Software, Version 17.12.04\n'
     expect([detectModel(text), detectVersion(text)]).toEqual(["C9500-24Y4C", "17.12.04"])
+  })
+})
+
+describe("picking several device lists or categories at once", () => {
+  it("treats nothing, All, and an empty list as 'everything'", () => {
+    for (const v of [undefined, null, "", "All", [], ["All"], ["  "]]) expect(selected(v), JSON.stringify(v)).toBeNull()
+  })
+
+  it("keeps what was picked, trims it and drops duplicates", () => {
+    expect(selected("LAB")).toEqual(["LAB"])
+    expect(selected(["LAB", "arise"])).toEqual(["LAB", "arise"])
+    expect(selected([" LAB ", "LAB", "arise"])).toEqual(["LAB", "arise"])
+    // "All" alongside real picks is the sentinel from the old single-select value, not a list name.
+    expect(selected(["All", "LAB"])).toEqual(["LAB"])
   })
 })

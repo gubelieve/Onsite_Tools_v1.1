@@ -10,7 +10,8 @@ const PREVIEW = 300
  *  including which devices the selection covers. */
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams
-  const list = q.get("list"), site = q.get("site")
+  // Repeated params, because the pickers are multi-select: ?list=LAB&list=arise&site=SS&site=FB
+  const list = q.getAll("list"), site = q.getAll("site")
   const [lists, sites, count, devices] = await Promise.all([
     listNames(), sitesOf(list), countDevices(list, site), previewDevices(list, site, PREVIEW),
   ])

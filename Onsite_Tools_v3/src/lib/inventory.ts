@@ -13,7 +13,17 @@ export const SITE_ALIASES = ["device_category", "category", "site", "zone", "loc
 export const HOSTNAME_ALIASES = ["hostname", "name", "device_name"]
 export const STANDARD_COLUMNS = ["List", "Device_Category", "IP_Address", "Hostname", "Device_Type", "Model", "Brand", "Description"]
 
-const isAll = (v?: string | null) => !v || ["All", "All Sites", "All Lists"].includes(v)
+/**
+ * A picker value: nothing, one name, or several (the Device list and Device Category pickers are multi-select).
+ * Empty - or the old "All" sentinel - means every list / every category.
+ */
+export type Selection = string | string[] | null | undefined
+
+export function selected(v: Selection): string[] | null {
+  const all = Array.isArray(v) ? v : v === undefined || v === null ? [] : [v]
+  const names = all.map((x) => String(x).trim()).filter((x) => x && !["All", "All Sites", "All Lists"].includes(x))
+  return names.length ? [...new Set(names)] : null
+}
 
 export interface ToolDevice {
   host: string
@@ -77,10 +87,11 @@ export async function importRows(fields: string[], rows: Row[], listName: string
   return { list, filename, mode, rows: rows.length, added, updated, skipped, removed }
 }
 
-function where(list?: string | null, site?: string | null, q?: string | null): Prisma.DeviceWhereInput {
+function where(list?: Selection, site?: Selection, q?: string | null): Prisma.DeviceWhereInput {
   const w: Prisma.DeviceWhereInput = {}
-  if (!isAll(list)) w.list = list!
-  if (!isAll(site)) w.site = site!
+  const lists = selected(list), sites = selected(site)
+  if (lists) w.list = lists.length === 1 ? lists[0] : { in: lists }
+  if (sites) w.site = sites.length === 1 ? sites[0] : { in: sites }
   if (q?.trim()) {
     const s = q.trim()
     w.OR = ["list", "site", "ip", "hostname", "deviceType", "model", "brand", "description", "extra"].map(
@@ -89,7 +100,7 @@ function where(list?: string | null, site?: string | null, q?: string | null): P
   return w
 }
 
-export async function listDevices(list?: string | null, site?: string | null, q?: string | null, take = 500, skip = 0) {
+export async function listDevices(list?: Selection, site?: Selection, q?: string | null, take = 500, skip = 0) {
   const w = where(list, site, q)
   const [total, devices] = await Promise.all([
     prisma.device.count({ where: w }),
@@ -118,7 +129,7 @@ export async function listNames(): Promise<string[]> {
   return (await prisma.device.groupBy({ by: ["list"], orderBy: { list: "asc" } })).map((g) => g.list)
 }
 
-export async function sitesOf(list?: string | null): Promise<string[]> {
+export async function sitesOf(list?: Selection): Promise<string[]> {
   const rows = await prisma.device.groupBy({ by: ["site"], where: where(list), orderBy: { site: "asc" } })
   return rows.map((r) => r.site).filter(Boolean)
 }
@@ -151,7 +162,7 @@ export function dedupeByIp<T extends { ip: string }>(rows: T[], max = Infinity):
 }
 
 /** Devices for a tool run, de-duplicated by IP (the same IP may live in several lists). */
-export async function getDevices(list?: string | null, site?: string | null, max = 5000): Promise<ToolDevice[]> {
+export async function getDevices(list?: Selection, site?: Selection, max = 5000): Promise<ToolDevice[]> {
   const rows = await prisma.device.findMany({ where: where(list, site), orderBy: [{ list: "asc" }, { ip: "asc" }] })
   return dedupeByIp(rows, max).map(toToolDevice)
 }
@@ -170,7 +181,7 @@ export function pickDevices<T extends { host: string }>(devices: T[], ips: unkno
 export interface PreviewDevice { ip: string; hostname: string; site: string; deviceType: string; model: string; description: string; list: string }
 
 /** The devices a run with this selection would contact - for the list shown under the selectors. */
-export async function previewDevices(list?: string | null, site?: string | null, max = 300): Promise<PreviewDevice[]> {
+export async function previewDevices(list?: Selection, site?: Selection, max = 300): Promise<PreviewDevice[]> {
   const rows = await prisma.device.findMany({
     where: where(list, site), orderBy: [{ list: "asc" }, { ip: "asc" }],
     select: { ip: true, hostname: true, site: true, deviceType: true, model: true, description: true, list: true },
@@ -178,7 +189,7 @@ export async function previewDevices(list?: string | null, site?: string | null,
   return dedupeByIp(rows, max)
 }
 
-export async function countDevices(list?: string | null, site?: string | null): Promise<number> {
+export async function countDevices(list?: Selection, site?: Selection): Promise<number> {
   const rows = await prisma.device.groupBy({ by: ["ip"], where: where(list, site) })
   return rows.length
 }
@@ -205,7 +216,7 @@ export async function upsertDevice(input: DeviceInput) {
 export const deleteDevice = (id: string) => prisma.device.delete({ where: { id } })
 export const deleteList = async (list: string) => (await prisma.device.deleteMany({ where: { list } })).count
 
-export async function exportRows(list?: string | null, site?: string | null) {
+export async function exportRows(list?: Selection, site?: Selection) {
   const devices = await prisma.device.findMany({ where: where(list, site), orderBy: [{ list: "asc" }, { site: "asc" }, { ip: "asc" }] })
   const extraCols: string[] = []
   const rows = devices.map((d) => {
