@@ -29,7 +29,7 @@
 | คำสั่ง | ผล |
 |--------|----|
 | `run.bat` | ใช้เฉพาะเครื่องนี้ (127.0.0.1) |
-| `run.bat --lan` | ให้เครื่องอื่นใน LAN เข้าได้ที่ `http://<IP เครื่องนี้>:8090` – **ไม่มี login ใครเข้าได้ก็ใช้ได้** ใช้เฉพาะใน network ที่ไว้ใจ |
+| `run.bat --lan` | ให้เครื่องอื่นใน LAN เข้าได้ที่ `http://<IP เครื่องนี้>:8090` – ต้องใส่ **access key** ที่หน้าต่าง run.bat แสดง (หรือเปิดลิงก์ `?key=...` ที่พิมพ์ไว้) ครั้งเดียวต่อ browser, key เก็บใน `data/access-key.txt` ลบไฟล์ = ออก key ใหม่ |
 | `run.bat --rebuild` | build ใหม่หลังแก้ source |
 
 **เครื่องที่ไม่มี internet:** run ครั้งแรกบนเครื่องที่มี internet แล้ว copy ทั้งโฟลเดอร์ (รวม `node_modules`, `.next`, `data`) ไปวาง
@@ -260,6 +260,7 @@ Command Runner (`legit-reads` + `read-request`) และ task / file
 | โฟลเดอร์ | เนื้อหา |
 |----------|---------|
 | `data/onsite.db` | Site Inventory, Run History, Settings (SQLite) |
+| `data/access-key.txt` | access key ของโหมด `--lan` (สร้างเองตอน run ครั้งแรก) |
 | `data/sessions.json` | session ที่ยังเปิดอยู่ของแต่ละ tool (ลบได้ = เหมือนกด Done) |
 | `logs/<tool>/<วันเวลา>/` | output ต่ออุปกรณ์ของแต่ละ run + log รายวัน |
 | `logs/upgrade-ios/session_<วันเวลา>/` | ทุก stage ของ upgrade หนึ่งครั้ง (จนกว่าจะกด Done) |

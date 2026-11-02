@@ -15,6 +15,9 @@ echo "Preparing the local database (data/onsite.db)..."
 npx prisma db push >/dev/null
 [ -f .next/BUILD_ID ] || npm run build
 
+URL=http://127.0.0.1:8090
+# LAN mode: open the browser with the access key so this PC does not have to type it
+[ "$MODE" = start:lan ] && URL="$URL/?key=$(node scripts/start-lan.mjs --key)"
 echo "Onsite Tools v3 -> http://127.0.0.1:8090"
-(sleep 3; (xdg-open http://127.0.0.1:8090 || open http://127.0.0.1:8090) >/dev/null 2>&1) &
+(sleep 3; (xdg-open "$URL" || open "$URL") >/dev/null 2>&1) &
 exec npm run "$MODE"
