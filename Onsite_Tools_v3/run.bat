@@ -4,7 +4,7 @@ REM  Onsite Tools v3 - Windows launcher (Node.js, no Python)
 REM  Copy this folder anywhere and double-click run.bat.
 REM  First run: installs packages, creates the local database
 REM  and builds the app (needs Node.js 20.19+ and internet once).
-REM  Options:  run.bat --lan      listen on all interfaces
+REM  Options:  run.bat --lan      listen on all interfaces (other PCs need the access key)
 REM            run.bat --rebuild  force a new build
 REM ============================================================
 setlocal
@@ -65,7 +65,10 @@ echo   Onsite Tools v3  -^>  http://127.0.0.1:8090
 echo   Close this window or press CTRL+C to stop.
 echo ============================================================
 echo.
-start "" /b cmd /c "timeout /t 3 /nobreak >nul & start http://127.0.0.1:8090"
+set "OPEN_URL=http://127.0.0.1:8090"
+REM LAN mode: open the browser with the access key so this PC does not have to type it
+if "%MODE%"=="start:lan" for /f "usebackq delims=" %%k in (`node scripts\start-lan.mjs --key`) do set "OPEN_URL=http://127.0.0.1:8090/?key=%%k"
+start "" /b cmd /c "timeout /t 3 /nobreak >nul & start %OPEN_URL%"
 call npm run %MODE%
 echo.
 echo Server stopped.

@@ -229,7 +229,6 @@ class BackupConfigurations(QWidget):
         cred_layout.addWidget(QLabel("Password:"))
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)
-        self.password_input.setText("REDACTED")  # Set default password
         cred_layout.addWidget(self.password_input)
         layout.addLayout(cred_layout)
         

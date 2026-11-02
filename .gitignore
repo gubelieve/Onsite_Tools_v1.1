@@ -34,3 +34,15 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db 
+
+# Device output, run results and customer device lists - IPs, configs and passwords never belong in git.
+/log/
+/logs/
+/export/
+/syslog/
+/results.csv
+/*.csv
+!/commands.csv
+!/device_list_template.csv
+/functions.zip
+*.exe
