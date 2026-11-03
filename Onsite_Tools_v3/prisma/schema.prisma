@@ -58,6 +58,17 @@ model JobRun {
   @@index([toolId, createdAt])
 }
 
+// Command Templates: a named set of commands per Device Category ("*" = every category without a list of its own),
+// loaded into a tool's commandsPerCategory field (Config Devices, IOS Upgrade capture).
+model CommandTemplate {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String   @default("")
+  // JSON object: { "<Device Category>": "one command per line", "*": "..." }
+  commands    String   @default("{}")
+  updatedAt   DateTime @updatedAt
+}
+
 model Setting {
   key   String @id
   value String

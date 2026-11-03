@@ -1,20 +1,24 @@
 "use client"
 
 import * as React from "react"
-import { CheckCircle2, Download, FolderOpen, Play } from "lucide-react"
+import { CheckCircle2, Download, FolderOpen, Play, Save } from "lucide-react"
 import { AlertDialog } from "@astryxdesign/core/AlertDialog"
 import { Badge } from "@astryxdesign/core/Badge"
 import { Button } from "@astryxdesign/core/Button"
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout"
 import { NumberInput } from "@astryxdesign/core/NumberInput"
 import { MultiSelector } from "@astryxdesign/core/MultiSelector"
 import { Selector } from "@astryxdesign/core/Selector"
 import { TextArea } from "@astryxdesign/core/TextArea"
 import { TextInput } from "@astryxdesign/core/TextInput"
 import { useToast } from "@astryxdesign/core/Toast"
+import { saveCommandTemplate } from "@/actions/command-templates"
 import { DevicePreview, type PreviewDevice } from "@/components/device-preview"
 import { JobPanel } from "@/components/job-panel"
 import { Panel } from "@/components/page-header"
+import type { CategoryCommands, CommandTemplate } from "@/lib/command-templates"
 import { ANY_CATEGORY, type FieldDef, type PublicTool, type RunDef } from "@/lib/tools/types"
 
 type Values = Record<string, unknown>
@@ -38,6 +42,10 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
   const [history, setHistory] = React.useState<HistoryItem[]>([])
   const [pending, setPending] = React.useState<RunDef | null>(null)
   const usesInventory = tool.fields.some((f) => f.source)
+  const usesTemplates = tool.fields.some((f) => f.type === "commandsPerCategory")
+  const [templates, setTemplates] = React.useState<CommandTemplate[]>([])
+  /** "Save as template" dialog: which field it saves and the name typed so far. */
+  const [saving, setSaving] = React.useState<{ field: string; name: string } | null>(null)
   const showDevices = tool.fields.some((f) => f.showCount)
   const set = (name: string, v: unknown) => setValues((p) => ({ ...p, [name]: v }))
 
@@ -85,6 +93,24 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
       .catch(() => undefined)
     return () => { alive = false }
   }, [tool.id, historyTick])
+
+  // Command Templates (menu of their own) fill a commandsPerCategory field in one pick.
+  React.useEffect(() => {
+    if (!usesTemplates) return
+    let alive = true
+    fetch("/api/command-templates", { cache: "no-store" }).then((r) => r.json())
+      .then((d: { templates: CommandTemplate[] }) => { if (alive) setTemplates(d.templates) }).catch(() => undefined)
+    return () => { alive = false }
+  }, [usesTemplates])
+
+  async function saveAsTemplate() {
+    if (!saving) return
+    const r = await saveCommandTemplate({ name: saving.name, commands: values[saving.field] })
+    if (!r.ok) { toast({ body: r.error, type: "error" }); return }
+    setTemplates((list) => [...list.filter((t) => t.id !== r.data.id), r.data].sort((a, b) => a.name.localeCompare(b.name)))
+    setSaving(null)
+    toast({ body: `Saved template "${r.data.name}"` })
+  }
 
   // Session tools (IOS Upgrade) keep every run in one folder until Done, so the bar has to follow every run.
   const [session, setSession] = React.useState<SessionInfo | null>(null)
@@ -216,8 +242,26 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
         const setOne = (key: string, text: string) => set(f.name, { ...byCategory, [key]: text })
         const categories = (inv?.sites ?? []).filter((c) => c && c !== "All")
         const own = categories.filter((c) => (byCategory[c] ?? "").trim())
+        const hasCommands = Object.values(byCategory).some((t) => String(t ?? "").trim())
         return (
           <div>
+            <div className="mb-2 flex flex-wrap items-end gap-2">
+              <div className="w-full max-w-sm">
+                <Selector label="Load a Command Template" value="" placeholder={templates.length ? "Pick a template…" : "No templates yet"}
+                  isDisabled={!templates.length} hasSearch={templates.length > 8}
+                  options={templates.map((t) => ({ value: t.id, label: t.description ? `${t.name} — ${t.description}` : t.name }))}
+                  onChange={(id) => {
+                    const t = templates.find((x) => x.id === id)
+                    if (!t) return
+                    // The template replaces every box, so a category the template leaves empty falls back as it says.
+                    set(f.name, { ...t.commands } satisfies CategoryCommands)
+                    toast({ body: `Loaded "${t.name}"` })
+                  }} />
+              </div>
+              <Button variant="secondary" label="Save as template" icon={<Save className="h-3.5 w-3.5" />} isDisabled={!hasCommands}
+                onClick={() => setSaving({ field: f.name, name: "" })} />
+              <a className="text-primary mb-2 text-xs underline" href="/command-templates">Manage templates</a>
+            </div>
             <TextArea label={f.label} value={byCategory[ANY_CATEGORY] ?? ""} rows={f.rows ?? 4} hasSpellCheck={false}
               description="Used by every Device Category that has no list of its own." onChange={(x) => setOne(ANY_CATEGORY, x)} />
             {categories.length > 0 && (
@@ -331,6 +375,32 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
       </Panel>
 
       {jobId && <Panel title="Results"><JobPanel key={jobId} jobId={jobId} onFinished={() => { setBusy(false); refreshHistory() }} /></Panel>}
+
+      {saving && (() => {
+        const clash = templates.find((t) => t.name.toLowerCase() === saving.name.trim().toLowerCase())
+        return (
+          <Dialog isOpen onOpenChange={(open) => { if (!open) setSaving(null) }} purpose="form" width={480}>
+            <Layout
+              header={<DialogHeader title="Save as Command Template" onOpenChange={() => setSaving(null)} />}
+              content={
+                <LayoutContent>
+                  <TextInput label="Template name" value={saving.name} isRequired onChange={(v) => setSaving({ ...saving, name: v })}
+                    placeholder="e.g. Pre-check before upgrade"
+                    description={clash ? `Replaces the existing template "${clash.name}".` : "Saves the commands of every Device Category box as they are now."} />
+                </LayoutContent>
+              }
+              footer={
+                <LayoutFooter hasDivider>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="secondary" label="Cancel" onClick={() => setSaving(null)} />
+                    <Button variant="primary" label={clash ? "Replace" : "Save"} isDisabled={!saving.name.trim()} clickAction={saveAsTemplate} />
+                  </div>
+                </LayoutFooter>
+              }
+            />
+          </Dialog>
+        )
+      })()}
 
       {pending && (
         <AlertDialog isOpen onOpenChange={(open) => { if (!open) setPending(null) }} title={pending.label}

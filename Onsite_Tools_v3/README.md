@@ -43,6 +43,17 @@
 4. ทุก run ถูกบันทึกใน **Run History** (เปิดดูย้อนหลังได้แม้ restart) – *ไม่มีการเก็บ password*
 5. **Settings** ตั้งค่า default (username, device type, จำนวน session, SSH timeout, SNMP community)
 
+### Command Templates
+
+เมนู **Command Templates** เก็บชุดคำสั่งไว้ใช้ซ้ำ แยกตาม **Device Category** (เช่น `WLC` ใช้ `show ap summary`, `ASW` ใช้ `show interfaces status`)
+พร้อมช่อง **Every other Device Category** สำหรับ category ที่ไม่ได้ใส่คำสั่งของตัวเอง
+
+* Category ดึงมาจาก Site Inventory อัตโนมัติ และเพิ่มชื่อเองได้ (สำหรับอุปกรณ์ที่ยังไม่ได้ import)
+* ในฟอร์ม **Config Devices** (และช่อง capture ของ **IOS Upgrade**) → **Load a Command Template** เติมคำสั่งทุกช่องให้ทันที
+  หรือพิมพ์คำสั่งในฟอร์มแล้วกด **Save as template** เก็บไว้ใช้ครั้งหน้า
+* ชื่อ template ไม่สนตัวพิมพ์เล็ก/ใหญ่ – บันทึกชื่อซ้ำ = แทนที่ของเดิม (ฟอร์มบอกก่อนกด)
+* เก็บในตาราง `CommandTemplate` ของ `data/onsite.db` – อัปเดตโค้ดแล้วให้รัน `run.bat --rebuild` หนึ่งครั้ง
+
 ### Site Inventory
 
 * คอลัมน์ IP ที่รองรับ: `IP_Address` / `ip_mgmt` / `ip` / `managementIpAddress`; **Device Category** อ่านจากคอลัมน์
@@ -280,7 +291,7 @@ npm run lint && npm run typecheck
 
 ```
 src/
-├── app/                  หน้าเว็บ (dashboard, site-inventory, tools/[id], history, settings) + api/ route handlers
+├── app/                  หน้าเว็บ (dashboard, site-inventory, command-templates, tools/[id], history, settings) + api/ route handlers
 ├── actions/              Server Actions (inventory, settings)
 ├── components/           app-sidebar, tool-runner (ฟอร์มจาก field definition), job-panel (ผลลัพธ์สด)
 └── lib/
