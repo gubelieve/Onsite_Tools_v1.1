@@ -1,9 +1,15 @@
 /** A tiny SSH server that behaves like a Cisco IOS CLI - lets the SSH driver be tested without hardware. */
 import crypto from "node:crypto"
+import https from "node:https"
 import { Server, type Connection } from "ssh2"
 import { FtpClient } from "./ftp-client"
 
-export interface FakeDevice { port: number; commands: string[]; flash: Map<string, Buffer>; inactive: string[]; installed: string[]; close: () => Promise<void> }
+export interface FakeDevice {
+  port: number; commands: string[]; flash: Map<string, Buffer>; inactive: string[]; installed: string[]
+  /** CA certificates added with "crypto pki authenticate", by trustpoint name. */
+  trustpoints: Map<string, string>
+  close: () => Promise<void>
+}
 
 const RESPONSES: Record<string, string> = {
   "show version": "Cisco IOS XE Software, Version 17.09.04a\nSW-LAB-01 uptime is 3 weeks\nROM: IOS-XE ROMMON",
@@ -20,6 +26,7 @@ const INACTIVE = [
 
 export function startFakeDevice(
   o: { hostname?: string; username?: string; password?: string; ftpPort?: number; inactive?: string[]; noInstallCommand?: boolean } = {},
+  // Like IOS: "copy https://" only accepts a server whose certificate is in one of the trustpoints.
 ): Promise<FakeDevice> {
   const hostname = o.hostname ?? "SW-LAB-01"
   const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 })
@@ -30,6 +37,7 @@ export function startFakeDevice(
   const inactive = [...(o.inactive ?? INACTIVE)]
   let freeBytes = 200 * 1024 * 1024
   const installed: string[] = []
+  const trustpoints = new Map<string, string>()
   const clients = new Set<Connection>()
 
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
@@ -46,6 +54,10 @@ export function startFakeDevice(
         session.on("shell", (acceptShell) => {
           const ch = acceptShell()
           let config = false, line = ""
+          let sub = "" // "ca-trustpoint" inside "crypto pki trustpoint X"
+          let pasting: { name: string; lines: string[] } | null = null // "crypto pki authenticate X", until "quit"
+          let accepting: { name: string; pem: string } | null = null // waiting for "Do you accept this certificate? [yes/no]"
+          let httpsCopy: { url: URL; dest: string } | null = null
           let removing = false // waiting for the answer to "Do you want to remove the above files? [y/n]"
           let copy: { user: string; pass: string; host: string; file: string } | null = null
           const runCopy = async (dest: string) => {
@@ -65,9 +77,30 @@ export function startFakeDevice(
             }
             ch.write(prompt())
           }
+          const runHttpsCopy = (job: { url: URL; dest: string }) => {
+            const ca = [...trustpoints.values()]
+            const req = https.get(job.url, { ca, rejectUnauthorized: true, auth: `${decodeURIComponent(job.url.username)}:${decodeURIComponent(job.url.password)}` }, (res) => {
+              const chunks: Buffer[] = []
+              res.on("data", (c: Buffer) => chunks.push(c))
+              res.on("end", () => {
+                if (res.statusCode !== 200) ch.write(`%Error opening ${job.url.protocol}//${job.url.host}${job.url.pathname} (HTTP ${res.statusCode})\r\n`)
+                else {
+                  const data = Buffer.concat(chunks)
+                  flash.set(job.dest, data)
+                  ch.write(`Accessing https://${job.url.host}${job.url.pathname}...\r\nLoading ${job.url.pathname} !!!!\r\n` +
+                    `[OK - ${data.length}/4096 bytes]\r\n\r\n${data.length} bytes copied in 1.234 secs (1000 bytes/sec)\r\n`)
+                }
+                ch.write(prompt())
+              })
+            })
+            req.on("error", (e) => {
+              ch.write(`%Error opening https://${job.url.host}${job.url.pathname} (${/certificate|self.signed|altnames/i.test(e.message) ? "Certificate validation failed" : "Timed out"})\r\n`)
+              ch.write(prompt())
+            })
+          }
           // Like IOS: the hostname in a prompt is cut to 20 characters, which only shows once a mode is
           // appended - "SRI-Core-C9300-FL9-01#" in exec, "SRI-Core-C9300-FL9-0(config)#" in config.
-          const prompt = () => (config ? `${hostname.slice(0, 20)}(config)#` : `${hostname}#`)
+          const prompt = () => (config ? `${hostname.slice(0, 20)}(${sub ? `config-${sub}` : "config"})#` : `${hostname}#`)
           ch.write(`\r\nWelcome to the lab\r\n\r\n${prompt()}`)
           ch.on("data", (d: Buffer) => {
             for (const c of d.toString("utf8")) {
@@ -76,6 +109,34 @@ export function startFakeDevice(
               line = ""
               ch.write(`${cmd}\r\n`) // devices echo what was typed
               if (cmd) commands.push(cmd)
+              if (pasting) {
+                if (cmd.toLowerCase() !== "quit" && cmd) { pasting.lines.push(cmd); return }
+                const pem = pasting.lines.join("\n") + "\n"
+                accepting = { name: pasting.name, pem }
+                pasting = null
+                ch.write(`Certificate has the following attributes:\r\n       Fingerprint SHA1: ${crypto.createHash("sha1").update(pem).digest("hex")}\r\n` +
+                  "% Do you accept this certificate? [yes/no]: ")
+                return
+              }
+              if (accepting) {
+                if (/^y/i.test(cmd)) { trustpoints.set(accepting.name, accepting.pem); ch.write("Trustpoint CA certificate accepted.\r\n") }
+                else ch.write("% Certificate not accepted\r\n")
+                accepting = null
+                ch.write(prompt())
+                return
+              }
+              if (httpsCopy) { const job = { ...httpsCopy, dest: cmd || httpsCopy.dest }; httpsCopy = null; runHttpsCopy(job); return }
+              const tp = /^crypto pki trustpoint (\S+)$/.exec(cmd)
+              if (config && tp) { sub = "ca-trustpoint"; ch.write(prompt()); return }
+              if (sub && cmd === "exit") { sub = ""; ch.write(prompt()); return }
+              const auth = /^crypto pki authenticate (\S+)$/.exec(cmd)
+              if (config && auth) {
+                pasting = { name: auth[1], lines: [] }
+                ch.write('Enter the base 64 encoded CA certificate.\r\nEnd with a blank line or the word "quit" on a line by itself\r\n\r\n')
+                return
+              }
+              const hc = /^copy (https:\/\/\S+) flash:(\S+)$/.exec(cmd)
+              if (hc) { httpsCopy = { url: new URL(hc[1]), dest: hc[2] }; ch.write(`Destination filename [${hc[2]}]? `); return }
               if (removing) { // answer to "Do you want to remove the above files? [y/n]"
                 removing = false
                 if (/^y/i.test(cmd)) {
@@ -119,7 +180,7 @@ export function startFakeDevice(
               const m = /^copy ftp:\/\/([^:]+):([^@]+)@([^/]+)\/(\S+) flash:(\S+)$/.exec(cmd)
               if (m) { copy = { user: m[1], pass: m[2], host: m[3], file: m[4] }; ch.write(`Destination filename [${m[5]}]? `); return }
               if (cmd === "configure terminal") config = true
-              else if (cmd === "end") config = false
+              else if (cmd === "end") { config = false; sub = "" }
               else if (cmd === "exit") { ch.close(); return }
               else if (cmd.startsWith("screen-length")) ch.write("% Invalid input detected at '^' marker.\r\n")
               else if (RESPONSES[cmd]) ch.write(RESPONSES[cmd].replace(/\n/g, "\r\n") + "\r\n")
@@ -134,7 +195,7 @@ export function startFakeDevice(
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
       const port = (server.address() as { port: number }).port
-      resolve({ port, commands, flash, inactive, installed, close: () => new Promise((r) => { clients.forEach((c) => c.end()); server.close(() => r()) }) })
+      resolve({ port, commands, flash, inactive, installed, trustpoints, close: () => new Promise((r) => { clients.forEach((c) => c.end()); server.close(() => r()) }) })
     })
   })
 }

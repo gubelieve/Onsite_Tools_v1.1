@@ -54,6 +54,6 @@ export async function noInboundHint(ftpIp: string, port: number): Promise<string
       `or switch Transfer method to "SCP push", which needs no inbound connection.`
   }
   return `The device never opened a connection to ${where}. Check that ${ftpIp} is the interface facing the device ` +
-    `(this PC has ${localAddresses().join(", ") || "no external address"}), that an ACL or firewall on the way does not block TCP 21, ` +
+    `(this PC has ${localAddresses().join(", ") || "no external address"}), that an ACL or firewall on the way does not block TCP ${port}, ` +
     `and that Windows allows inbound connections to ${program}. "SCP push" avoids inbound connections entirely.`
 }

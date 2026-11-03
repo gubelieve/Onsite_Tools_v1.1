@@ -38,6 +38,24 @@ const cellText = (v: unknown) => (v === null || v === undefined ? undefined : St
 const rowTitle = (row: Record<string, unknown>) =>
   String(row["IP Address"] ?? row["Host"] ?? row["IP Management"] ?? row["Checked On (IP)"] ?? row["Device Switch"] ?? row["Hostname"] ?? "")
 
+/**
+ * "Open Directory": the server opens the folder in Explorer on its own PC. The browser names a job or a tool,
+ * never a path. A browser on another PC (--lan) gets told to use the zip instead.
+ */
+export function OpenDirectoryButton({ target, label = "Open Directory", variant = "secondary" }:
+  { target: { jobId: string } | { toolId: string }; label?: string; variant?: "secondary" | "ghost" }) {
+  const toast = useToast()
+  return (
+    <Button variant={variant} size="sm" label={label} icon={<FolderOpen className="h-3.5 w-3.5" />}
+      tooltip="Open the log folder in Explorer on this PC"
+      clickAction={async () => {
+        const res = await fetch("/api/open-folder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(target) })
+        const body = (await res.json().catch(() => ({}))) as { path?: string; error?: string }
+        toast(res.ok ? { body: `Opened ${body.path}` } : { body: body.error ?? "Could not open the folder", type: "error" })
+      }} />
+  )
+}
+
 /** Live view of one job: polls until it finishes, shows progress, the results table, downloads and the log.
  *  Render it with key={jobId} so switching jobs starts from a clean state. */
 export function JobPanel({ jobId, onFinished }: { jobId: string; onFinished?: () => void }) {
@@ -179,6 +197,7 @@ export function JobPanel({ jobId, onFinished }: { jobId: string; onFinished?: ()
             <Button key={a.index} variant="ghost" size="sm" label={a.name} icon={<Download className="h-3.5 w-3.5" />} href={`/api/jobs/${job.id}/artifact/${a.index}`} />
           ))}
           {job.runDir && <span className="text-muted-foreground inline-flex items-center gap-1 text-xs" title={job.runDir}><FolderOpen className="h-3.5 w-3.5" />{job.runDir}</span>}
+          {job.runDir && <OpenDirectoryButton target={{ jobId: job.id }} variant="ghost" />}
         </div>
       )}
 

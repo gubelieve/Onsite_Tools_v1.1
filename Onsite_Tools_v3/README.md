@@ -107,11 +107,14 @@ Device type `autodetect` ลองคำสั่งปิด paging ของ C
 |-----------------|----------------|----------|
 | **Built-in FTP server** (ค่าเริ่มต้น) | ไม่ต้องเปิด FTP server เอง – App เปิด port 21 ให้เฉพาะช่วงที่ Stage 1 ทำงาน แล้วปิดเอง | read-only, ให้ดาวน์โหลดได้เฉพาะไฟล์ image ที่เลือก, user/password สุ่มใหม่ทุก run และไม่แสดงในผลลัพธ์ / log ครั้งแรก Windows จะถาม firewall ของ Node.js ให้กด Allow |
 | **SCP push** | ไม่มีอะไร listen บนเครื่องนี้ – App ต่อ SSH เข้าไปส่งไฟล์เอง | ถ้าอุปกรณ์ยังไม่มี `ip scp server enable` App จะใส่ให้ (ไม่ได้ `write memory`), user ต้องเป็น privilege 15, SCP ของ IOS ช้ากว่า FTP |
+| **Built-in HTTPS server** | ไม่ต้องเปิด web server เอง – App เปิด HTTPS (ค่าเริ่มต้น port 443, เปลี่ยนได้ในช่อง HTTPS port) เฉพาะช่วง Stage 1 | เข้ารหัสทั้งเส้นทาง ใช้ **port เดียว** (FTP ต้องใช้ passive port เพิ่ม), read-only, user/password สุ่มใหม่ทุก run ใช้ certificate self-signed ของเครื่องนี้ (`data/https/`) – ติ๊ก **Trust this PC's certificate on the device** (ค่าเริ่มต้น) แล้ว App จะใส่ `crypto pki trustpoint ONSITE-<fingerprint>` + `crypto pki authenticate` ให้ก่อน copy (running-config เท่านั้น ไม่ `write memory`) เพราะ `copy https:` ของ Cisco ตรวจ certificate ของ server เสมอ |
 | External FTP server | FTP server ที่เปิดไว้อยู่แล้ว (FileZilla, IIS) | พฤติกรรมเดิม |
+| External HTTPS server | web server ที่เปิดไว้อยู่แล้ว (IIS, nginx) | ใส่ URL ของโฟลเดอร์ที่มีไฟล์ image เช่น `https://10.1.1.5/ios` (ใส่ `user:pass@` ใน URL ได้) อุปกรณ์ต้อง trust certificate ของ server นั้นอยู่แล้ว |
 
 **ระหว่างโอนไฟล์ = หลอดโหลด ไม่ใช่ log ไหลเรื่อย ๆ** – Stage 1 ใช้ **1 แถวต่ออุปกรณ์** แล้วอัปเดตแถวเดิมทุกวินาที
 ในคอลัมน์ **Progress** เป็นหลอด (เต็มแล้วเปลี่ยนเป็นสีเขียว) ส่วน Message บอก `412.5 / 1,199.8 MB (34.4%) · 5.8 MB/s · 2m 16s left`
-และหลอดด้านบนสุดของผลลัพธ์นับเป็น **MB ที่ส่งไปแล้ว** (ไม่ใช่จำนวนอุปกรณ์) เฉพาะ Stage 1 – ใช้ได้ทั้ง 3 transfer method
+และหลอดด้านบนสุดของผลลัพธ์นับเป็น **MB ที่ส่งไปแล้ว** (ไม่ใช่จำนวนอุปกรณ์) เฉพาะ Stage 1 – ใช้ได้กับ built-in FTP, built-in HTTPS และ SCP
+(External FTP อ่านขนาดไฟล์บน flash ทุก 5 วินาที, External HTTPS รู้ผลตอน copy จบ)
 
 > **Windows Firewall:** built-in FTP ต้องให้อุปกรณ์ "ต่อเข้ามา" ที่เครื่องนี้ ถ้าเคยกด Cancel ตอน Windows ถาม
 > Windows จะสร้าง rule **Block ขาเข้า** ของ `node.exe` ค้างไว้ และ copy จะล้มเหลวทุกครั้ง (Block ชนะ Allow เสมอ
@@ -253,6 +256,14 @@ Command Runner (`legit-reads` + `read-request`) และ task / file
 * ไฟล์ทั้งหมดในโฟลเดอร์ของ run เช่น log ต่ออุปกรณ์ของ Config Devices หรือทั้ง session ของ IOS Upgrade
 
 สะดวกสำหรับแนบส่งงาน – zip เขียนเองใน `src/lib/zip.ts` (ไม่ต้องลง library เพิ่ม, เปิดด้วย Explorer ของ Windows ได้)
+
+## ปุ่ม Open Directory
+
+* ในผลลัพธ์ของทุก run ที่มีโฟลเดอร์ log – ปุ่ม **Open Directory** ข้าง path เปิดโฟลเดอร์ของ run นั้นใน Explorer
+* ใน **Config Devices** – ปุ่ม **Open log folder** ข้างปุ่ม Run เปิด `logs/config-devices/` (ทุก run อยู่ในนั้น วันที่_เวลา)
+
+ใช้ได้เฉพาะ browser บนเครื่องที่รัน App (เหมือนปุ่ม Browse) – ใน `--lan` จากเครื่องอื่นให้ใช้ **Zip log files** แทน
+Browser ส่งแค่ job / tool ไป ไม่ใช่ path ดังนั้นเปิดได้เฉพาะโฟลเดอร์ที่ App เขียนเอง
 
 ## งานที่กำลังรันอยู่ กับการสลับเมนู
 

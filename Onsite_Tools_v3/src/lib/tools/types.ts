@@ -32,7 +32,8 @@ export interface FieldDef {
   /** Options loaded from Site Inventory. `dependsOn` = name of the list field for a site selector. */
   source?: { type: "inventoryLists" } | { type: "inventorySites"; dependsOn: string }
   showCount?: boolean
-  showIf?: Record<string, string>
+  /** Show the field only in this form state. A list means "any of these values". */
+  showIf?: Record<string, string | string[]>
   /** Remembered in the browser together with the credentials. */
   remember?: boolean
   kind?: "file" | "folder"
@@ -77,11 +78,17 @@ export interface ToolDef {
   latestFirst?: boolean
   /** Fold the results under this column, one group per value (e.g. one drop-down per device). */
   groupBy?: string
+  /** Offer "Open Directory" next to the run buttons: logs/<tool>/, where every run of this tool writes its folder. */
+  logFolder?: boolean
   run: (ctx: JobContext, params: Params) => Promise<void>
 }
 
 /** What the browser needs - no functions. */
 export type PublicTool = Omit<ToolDef, "run">
+
+/** True when every key of a field's showIf matches the form - a list matches any of its values. */
+export const shownFor = (showIf: Record<string, string | string[]> | undefined, values: Params): boolean =>
+  !showIf || Object.entries(showIf).every(([k, v]) => (Array.isArray(v) ? v : [v]).includes(String(values[k] ?? "")))
 
 export const str = (v: unknown, d = ""): string => (v === undefined || v === null ? d : String(v))
 

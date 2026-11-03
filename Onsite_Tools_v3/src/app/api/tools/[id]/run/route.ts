@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 import { jobs } from "@/lib/jobs"
 import { getTool } from "@/lib/tools"
-import type { FieldDef, Params } from "@/lib/tools/types"
+import { shownFor, type FieldDef, type Params } from "@/lib/tools/types"
 
-const visible = (f: FieldDef, p: Params) => !f.showIf || Object.entries(f.showIf).every(([k, v]) => String(p[k] ?? "") === v)
+const visible = (f: FieldDef, p: Params) => shownFor(f.showIf, p)
 const empty = (v: unknown) => v === undefined || v === null || v === "" || (Array.isArray(v) && !v.length)
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {

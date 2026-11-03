@@ -16,10 +16,10 @@ import { TextInput } from "@astryxdesign/core/TextInput"
 import { useToast } from "@astryxdesign/core/Toast"
 import { saveCommandTemplate } from "@/actions/command-templates"
 import { DevicePreview, type PreviewDevice } from "@/components/device-preview"
-import { JobPanel } from "@/components/job-panel"
+import { JobPanel, OpenDirectoryButton } from "@/components/job-panel"
 import { Panel } from "@/components/page-header"
 import type { CategoryCommands, CommandTemplate } from "@/lib/command-templates"
-import { ANY_CATEGORY, type FieldDef, type PublicTool, type RunDef } from "@/lib/tools/types"
+import { ANY_CATEGORY, shownFor, type FieldDef, type PublicTool, type RunDef } from "@/lib/tools/types"
 
 type Values = Record<string, unknown>
 interface HistoryItem { id: string; runLabel: string; status: string; created: string; rowCount: number }
@@ -150,7 +150,7 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usesInventory, query])
 
-  const visible = (f: FieldDef) => !f.showIf || Object.entries(f.showIf).every(([k, v]) => String(values[k] ?? "") === v)
+  const visible = (f: FieldDef) => shownFor(f.showIf, values)
 
   /** How many devices this run would touch - shown in a confirmation so nobody guesses. */
   const deviceCount = picked ? picked.size : inv?.count ?? 0
@@ -359,6 +359,7 @@ export function ToolRunner({ tool, deviceTypes, defaults }: { tool: PublicTool; 
             <Button key={r.id} label={r.label} variant={r.danger ? "destructive" : "primary"} isDisabled={busy} icon={<Play className="h-3.5 w-3.5" />}
               onClick={() => (needsAsking(r) ? setPending(r) : void start(r))} />
           ))}
+          {tool.logFolder && <OpenDirectoryButton target={{ toolId: tool.id }} label="Open log folder" />}
           <span className="flex-1" />
           {tool.fields.some((f) => f.type === "password") && <CheckboxInput label="Remember credentials in this browser" value={remember} onChange={setRemember} size="sm" />}
           {history.length > 0 && (

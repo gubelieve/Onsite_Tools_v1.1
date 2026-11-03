@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process"
 import path from "node:path"
 import { NextResponse } from "next/server"
+import { isLocalRequest } from "@/lib/local-desktop"
 import { BASE_DIR } from "@/lib/paths"
 
 export const dynamic = "force-dynamic"
@@ -13,12 +14,6 @@ export const dynamic = "force-dynamic"
  * otherwise open it behind the browser - scripts/browse.ps1 does that part.
  * Only answered for requests that come from this PC: in --lan mode the dialog would open on the wrong screen.
  */
-function isLocal(req: Request): boolean {
-  const fwd = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim().replace(/^::ffff:/, "")
-  const host = (req.headers.get("host") ?? "").replace(/:\d+$/, "")
-  return (!fwd || fwd === "127.0.0.1" || fwd === "::1") && ["127.0.0.1", "localhost", "[::1]"].includes(host)
-}
-
 const run = (cmd: string, args: string[], env: Record<string, string> = {}) => new Promise<string>((resolve, reject) => {
   execFile(cmd, args, { timeout: 10 * 60 * 1000, windowsHide: true, env: { ...process.env, ...env } }, (err, stdout) => {
     // zenity / osascript exit with 1 when the user presses Cancel
@@ -29,7 +24,7 @@ const run = (cmd: string, args: string[], env: Record<string, string> = {}) => n
 let open = false
 
 export async function POST(req: Request) {
-  if (!isLocal(req)) return NextResponse.json({ error: "Browse only works in a browser on the PC that runs the app. Paste the path instead." }, { status: 403 })
+  if (!isLocalRequest(req)) return NextResponse.json({ error: "Browse only works in a browser on the PC that runs the app. Paste the path instead." }, { status: 403 })
   if (open) return NextResponse.json({ error: "A file dialog is already open - check the taskbar." }, { status: 409 })
   const body = (await req.json().catch(() => ({}))) as { kind?: string; title?: string; filter?: string; initial?: string }
   const folder = body.kind === "folder"

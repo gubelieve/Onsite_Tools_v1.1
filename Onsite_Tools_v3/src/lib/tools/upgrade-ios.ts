@@ -1,7 +1,7 @@
 /**
  * IOS Upgrade - multi-stage Cisco IOS / IOS-XE upgrade. Each stage is a separate run so the results can be
- * reviewed in between. Stage 1 can transfer the image with the built-in FTP server (started automatically for the
- * run), by SCP push (nothing listens on the PC) or from an external FTP server that is already running.
+ * reviewed in between. Stage 1 can transfer the image with the built-in FTP or HTTPS server (started automatically
+ * for the run), by SCP push (nothing listens on the PC) or from an external FTP / HTTPS server that is already running.
  */
 import crypto from "node:crypto"
 import fs from "node:fs"
@@ -10,13 +10,15 @@ import type { JobContext } from "../jobs"
 import type { ToolDevice } from "../inventory"
 import { noInboundHint } from "../net/firewall"
 import { SingleFileFtpServer } from "../net/ftp-server"
+import { SingleFileHttpsServer } from "../net/https-server"
 import { scpPush } from "../net/scp"
+import { serverCert } from "../net/self-signed"
 import { SshSession } from "../net/ssh"
 import { ensureDir, hms, safeName, stamp } from "../paths"
 import { appendRun, openSession as openRunSession } from "../session"
 import { localIp } from "../settings"
 import { devicesFor, openSession } from "./common"
-import { ANY_CATEGORY, commandsForCategory, INVENTORY_FIELDS, num, str, type Params, type ToolDef } from "./types"
+import { ANY_CATEGORY, bool, commandsForCategory, INVENTORY_FIELDS, num, str, type Params, type ToolDef } from "./types"
 
 export const DEFAULT_CAPTURE = [
   "show version",
@@ -88,6 +90,35 @@ export async function explainFtpFailure(ftp: SingleFileFtpServer, out: string, d
     'allow this app through the Windows firewall for all ports, or use "SCP push", which needs no inbound connection.'
 }
 
+/** The trustpoint the device keeps this PC's certificate in. The fingerprint is in the name, so a new certificate
+ *  (the PC moved to another address) becomes a new trustpoint instead of silently not matching the old one. */
+export const trustpointName = (fingerprint: string) => `ONSITE-${fingerprint.slice(0, 8).toUpperCase()}`
+
+/** The HTTPS version of explainFtpFailure: which step of the conversation never happened. */
+export async function explainHttpsFailure(srv: SingleFileHttpsServer, out: string, deviceHost: string, ip: string): Promise<string> {
+  const spoke = /^\s*(%\s*Error[^\n]*|%\s*Warning[^\n]*)/im.exec(out)?.[1]?.trim()
+  const said = spoke ? `The device reported "${spoke}". ` : ""
+  const me = deviceHost.split(":")[0]
+  const where = `${ip}:${srv.port}`
+  if (srv.clients.size === 0) return said + (await noInboundHint(ip, srv.port))
+  if (srv.handshakeFailed.has(me) || (srv.authenticated.size === 0 && /certif|ssl|tls|handshake|verif/i.test(out))) {
+    return said + `The device reached ${where} but rejected this PC's certificate. Tick "Trust this PC's certificate on the device" ` +
+      `(it adds trustpoint ${trustpointName(srv.certificate.fingerprint)}), or install data/https/onsite-tools.crt on the device yourself.`
+  }
+  if (srv.authenticated.size === 0) {
+    return said + `The device reached ${where} but did not send the one-time login. A device-side "ip http client username / password" ` +
+      "overrides the credentials in the URL - remove it for the upgrade."
+  }
+  if (!srv.clients.has(me)) {
+    return said + `A connection arrived from ${[...srv.clients].join(", ")} rather than ${me}. If the device uses ` +
+      '"ip http client source-interface", that address has to be able to reach this PC too.'
+  }
+  return said + `The device logged in to ${where} but the download did not finish - read the output (flash space, a timeout on the way).`
+}
+
+/** "https://10.1.1.5:8443/ios/" -> "10.1.1.5", for the reachability check in Stage 0. */
+export const urlHost = (url: string) => { try { return new URL(url).hostname.replace(/^\[|\]$/g, "") } catch { return "" } }
+
 /**
  * The files "install remove inactive" offers to delete: the lines between "The following files will be deleted:"
  * and the [y/n] question. A stack repeats the list per member, so the "[switch N]" heading is kept with each file -
@@ -120,7 +151,7 @@ export class Stage {
   private startedAt = 0
 
   constructor(private ctx: JobContext, private params: Params, private device: ToolDevice, private stage: number,
-              private iosFile: string, private ftpIp: string, private ftp: SingleFileFtpServer | null = null,
+              private iosFile: string, private ftpIp: string, private ftp: SingleFileFtpServer | SingleFileHttpsServer | null = null,
               private onBytes?: (host: string, sent: number) => void) {
     this.hostname = device.hostname || "Unknown"
   }
@@ -198,7 +229,7 @@ export class Stage {
 
     const ping = await this.run1(s, `ping ${this.ftpIp} repeat 3`)
     const reachable = /Success rate is (100|80|66|60) percent/.test(ping)
-    this.emit(reachable ? "Pass" : "Failed", `FTP server connectivity ${reachable ? "OK" : "FAILED"}: ${this.ftpIp}`, "0", ping)
+    this.emit(reachable ? "Pass" : "Failed", `Image server connectivity ${reachable ? "OK" : "FAILED"}: ${this.ftpIp}`, "0", ping)
 
     const run = (await this.run1(s, "show running-config", 120)).toLowerCase()
     const checks = { "SSH enabled": run.includes("ip ssh"), "Console timeout": run.includes("exec-timeout"), "Logging configured": run.includes("logging"), "NTP configured": run.includes("ntp") }
@@ -227,8 +258,11 @@ export class Stage {
     const filename = flashName(this.iosFile)
     const size = fs.statSync(this.iosFile).size
     this.startedAt = Date.now()
-    if (str(this.params.transferMethod, "ftp-builtin") === "scp") return this.uploadScp(s, filename, size)
-    if (this.ftp) return this.uploadBuiltinFtp(s, filename, size)
+    const method = str(this.params.transferMethod, "ftp-builtin")
+    if (method === "scp") return this.uploadScp(s, filename, size)
+    if (this.ftp instanceof SingleFileHttpsServer) return this.uploadBuiltinHttps(s, this.ftp, filename, size)
+    if (this.ftp) return this.uploadBuiltinFtp(s, this.ftp, filename, size)
+    if (method === "https-external") return this.uploadExternalHttps(s, filename, size)
     const cmd = `copy ftp://${this.ftpIp}/${baseName(this.iosFile)} flash:${filename}`
     this.transfer("Running", `FTP upload from ${this.ftpIp} -> ${filename}`, 0, size)
     let out = await s.sendTiming(cmd)
@@ -262,8 +296,7 @@ export class Stage {
   }
 
   /** Built-in FTP: the app serves the image itself, so progress comes straight from the server's byte counter. */
-  private async uploadBuiltinFtp(s: SshSession, filename: string, size: number) {
-    const ftp = this.ftp!
+  private async uploadBuiltinFtp(s: SshSession, ftp: SingleFileFtpServer, filename: string, size: number) {
     const cmd = `copy ftp://${ftp.user}:${ftp.password}@${this.ftpIp}/${ftp.fileName} flash:${filename}`
     const shown = cmd.replace(ftp.password, "****")
     this.transfer("Running", `Built-in FTP ${this.ftpIp}:${ftp.port} -> ${filename}`, 0, size)
@@ -289,6 +322,90 @@ export class Stage {
       return
     }
     this.transfer("Failed", `FTP copy failed: ${await explainFtpFailure(ftp, out, this.device.host, this.ftpIp)}`, 0, size, out)
+  }
+
+  /**
+   * Built-in HTTPS: the same flow as built-in FTP over one TLS port. A Cisco HTTPS client checks the server
+   * certificate, so unless the user says otherwise this PC's self-signed certificate is installed as a trustpoint
+   * first - in the running-config only, like the SCP switch.
+   */
+  private async uploadBuiltinHttps(s: SshSession, srv: SingleFileHttpsServer, filename: string, size: number) {
+    if (bool(this.params.httpsTrust ?? true)) {
+      try {
+        const msg = await this.trustCertificate(s, srv)
+        if (msg) this.emit("Running", msg)
+      } catch (e) {
+        this.emit("Warning", `Could not install this PC's certificate: ${(e as Error).message} - trying the copy anyway`)
+      }
+    }
+    const url = `https://${srv.user}:${srv.password}@${this.ftpIp}${srv.port === 443 ? "" : `:${srv.port}`}/${srv.fileName}`
+    const cmd = `copy ${url} flash:${filename}`
+    const shown = cmd.replace(srv.password, "****")
+    this.transfer("Running", `Built-in HTTPS ${this.ftpIp}:${srv.port} -> ${filename}`, 0, size)
+    let out = await s.sendTiming(cmd, 2000, 20000)
+    if (/Destination filename/i.test(out)) out += await s.sendTiming(filename, 2000, 20000)
+    if (/over ?write|\[confirm\]/i.test(out)) out += await s.sendTiming("", 2000, 20000)
+    const me = this.device.host.split(":")[0]
+    const ticker = setInterval(() => {
+      const t = srv.transfers.get(me) ?? [...srv.transfers.values()].find((x) => !x.done)
+      if (t && !t.done) this.transfer("Running", `Uploading: ${this.progressText(t.sent, size)}`, t.sent, size)
+    }, 1000)
+    try {
+      if (!s.endsWithPrompt(out)) out += await s.waitForPrompt(60 * 60)
+    } finally { clearInterval(ticker) }
+    out = out.split(srv.password).join("****")
+    this.logCmd(shown, out)
+    const copied = /(\d+) bytes copied/.exec(out)
+    if ((copied || /\[OK/.test(out)) && !/%\s*Error/i.test(out)) {
+      const sent = Number(copied?.[1] ?? size)
+      this.transfer("Completed", `IOS uploaded via built-in HTTPS (${mb(sent)} MB in ${hms2((Date.now() - this.startedAt) / 1000)})`, sent, size, out)
+      return
+    }
+    this.transfer("Failed", `HTTPS copy failed: ${await explainHttpsFailure(srv, out, this.device.host, this.ftpIp)}`, 0, size, out)
+  }
+
+  /**
+   * "crypto pki authenticate" with this PC's certificate pasted in, so "copy https://" accepts the built-in server.
+   * Skipped when the trustpoint for this exact certificate is already there. Returns what to tell the user.
+   */
+  private async trustCertificate(s: SshSession, srv: SingleFileHttpsServer): Promise<string> {
+    const name = trustpointName(srv.certificate.fingerprint)
+    const have = await s.send(`show running-config | include crypto pki trustpoint ${name}`, { timeoutSec: 60 })
+    if (new RegExp(`crypto pki trustpoint ${name}\\b`).test(have)) return ""
+    let out = await s.configMode()
+    for (const line of [`crypto pki trustpoint ${name}`, "enrollment terminal", "revocation-check none", "exit"]) out += "\n" + (await s.send(line, { timeoutSec: 30 }))
+    out += await s.sendTiming(`crypto pki authenticate ${name}`, 1500, 15000)
+    for (const line of srv.certificate.cert.trim().split(/\r?\n/)) out += await s.sendTiming(line, 150, 2000)
+    out += await s.sendTiming("quit", 2000, 20000)
+    if (/\[yes\/no\]/i.test(out)) out += await s.sendTiming("yes", 2000, 20000)
+    out += await s.send("end", { timeoutSec: 15 }).catch(() => "")
+    const ok = /accepted|successfully imported|already authenticated/i.test(out)
+    this.logCmd(`crypto pki authenticate ${name}`, out, ok ? "Completed" : "Failed")
+    if (!ok) throw new Error("the device did not accept it (see the stage log)")
+    return `Installed this PC's certificate as trustpoint ${name} (running-config only, not saved)`
+  }
+
+  /** External HTTPS: the image is already on a web server; the URL's own credentials and certificate apply. */
+  private async uploadExternalHttps(s: SshSession, filename: string, size: number) {
+    const base = str(this.params.httpsUrlExternal).trim().replace(/\/+$/, "")
+    const url = `${base}/${encodeURIComponent(baseName(this.iosFile))}`
+    const shown = url.replace(/\/\/([^:/@]+):[^@/]*@/, "//$1:****@")
+    this.transfer("Running", `HTTPS download from ${shown.replace(/\/[^/]*$/, "")} -> ${filename} (progress shows when it finishes)`, 0, size)
+    let out = await s.sendTiming(`copy ${url} flash:${filename}`, 2000, 20000)
+    if (/Destination filename/i.test(out)) out += await s.sendTiming(filename, 2000, 20000)
+    if (/over ?write|\[confirm\]/i.test(out)) out += await s.sendTiming("", 2000, 20000)
+    if (!s.endsWithPrompt(out)) out += await s.waitForPrompt(60 * 60)
+    out = out.split(url).join(shown)
+    this.logCmd(`copy ${shown} flash:${filename}`, out)
+    const copied = /(\d+) bytes copied/.exec(out)
+    if ((copied || /\[OK/.test(out)) && !/%\s*Error/i.test(out)) {
+      const sent = Number(copied?.[1] ?? size)
+      this.transfer("Completed", `IOS uploaded via HTTPS (${mb(sent)} MB in ${hms2((Date.now() - this.startedAt) / 1000)})`, sent, size, out)
+      return
+    }
+    const spoke = /^\s*(%\s*Error[^\n]*)/im.exec(out)?.[1]?.trim()
+    this.transfer("Failed", `HTTPS copy failed${spoke ? `: ${spoke}` : ""}. Check the URL, that the image is in that folder, and that the ` +
+      "device trusts the server's certificate (crypto pki trustpoint).", 0, size, out)
   }
 
   /** SCP push: the PC connects to the device, so nothing has to listen on the PC. */
@@ -510,11 +627,11 @@ export class Stage {
 
 export const upgradeIos: ToolDef = {
   id: "upgrade-ios", name: "IOS Upgrade", category: "SSH Tools", order: 15, icon: "upload",
-  description: "Multi-stage Cisco IOS/IOS-XE upgrade: verify environment, FTP upload, MD5 check, install, post-checks. Run the stages in order.",
+  description: "Multi-stage Cisco IOS/IOS-XE upgrade: verify environment, FTP / HTTPS / SCP upload, MD5 check, install, post-checks. Run the stages in order.",
   fields: [
     { name: "iosFile", label: "IOS image file", type: "path", kind: "file", required: true, placeholder: "Click Browse, or paste the full path",
       browseTitle: "Select the IOS image", browseFilter: "IOS images (*.bin;*.tar;*.img;*.pkg)|*.bin;*.tar;*.img;*.pkg|All files (*.*)|*.*",
-      help: "The file stays where it is on this PC - nothing is copied. With 'External FTP server' the same file must also be in that server's root." },
+      help: "The file stays where it is on this PC - nothing is copied. With an external FTP / HTTPS server the same file must also be on that server." },
     ...INVENTORY_FIELDS,
     { name: "username", label: "Username", type: "text", required: true, width: "half", defaultFrom: "username", remember: true },
     { name: "password", label: "Password", type: "password", required: true, width: "half", remember: true },
@@ -529,13 +646,26 @@ export const upgradeIos: ToolDef = {
         { value: "install", label: "Install mode (install add ... activate commit)" }] },
     { name: "transferMethod", label: "Transfer method (Stage 1)", type: "select", default: "ftp-builtin",
       options: [{ value: "ftp-builtin", label: "Built-in FTP server - started automatically (recommended)" },
+        { value: "https-builtin", label: "Built-in HTTPS server - started automatically, encrypted, one port" },
         { value: "scp", label: "SCP push - nothing listens on this PC (slower; enables 'ip scp server')" },
-        { value: "ftp-external", label: "External FTP server - already running (FileZilla, IIS, ...)" }],
-      help: "Built-in FTP listens on port 21 only while Stage 1 runs, with a one-time password, and serves only the selected image. Allow Node.js in the Windows firewall prompt the first time." },
-    { name: "ftpIp", label: "FTP server IP (this PC)", type: "text", width: "half", defaultFrom: "localIp",
-      showIf: { transferMethod: "ftp-builtin" }, help: "Address of this PC as seen by the devices. Auto-detected from the default route; edit it if the devices reach this PC on another interface." },
+        { value: "ftp-external", label: "External FTP server - already running (FileZilla, IIS, ...)" },
+        { value: "https-external", label: "External HTTPS server - already running (IIS, nginx, ...)" }],
+      help: "The built-in servers listen only while Stage 1 runs, with a one-time password, and serve only the selected image. " +
+        "Built-in FTP uses port 21 plus passive ports; built-in HTTPS uses one port. Allow Node.js in the Windows firewall prompt the first time." },
+    { name: "ftpIp", label: "Server IP (this PC)", type: "text", width: "half", defaultFrom: "localIp",
+      showIf: { transferMethod: ["ftp-builtin", "https-builtin"] }, help: "Address of this PC as seen by the devices. Auto-detected from the default route; edit it if the devices reach this PC on another interface." },
+    { name: "httpsPort", label: "HTTPS port", type: "number", default: 443, min: 1, max: 65535, width: "half",
+      showIf: { transferMethod: "https-builtin" }, help: "443 unless IIS or another web server already uses it on this PC - then e.g. 8443." },
+    { name: "httpsTrust", label: "Trust this PC's certificate on the device", type: "checkbox", default: true, width: "half",
+      showIf: { transferMethod: "https-builtin" },
+      help: "Cisco checks the server certificate on 'copy https:'. This adds this PC's self-signed certificate as trustpoint " +
+        "ONSITE-<fingerprint> (running-config only) before the copy. Untick it if the devices already trust data/https/onsite-tools.crt." },
     { name: "ftpIpExternal", label: "External FTP server IP", type: "text", width: "half", defaultFrom: "localIp",
       showIf: { transferMethod: "ftp-external" }, help: "Anonymous FTP, or configure 'ip ftp username / password' on the devices." },
+    { name: "httpsUrlExternal", label: "External HTTPS folder URL", type: "text", placeholder: "https://10.1.1.5/ios",
+      showIf: { transferMethod: "https-external" },
+      help: "The folder that holds the image - its file name is added. Credentials may go in the URL (https://user:pass@host/ios). " +
+        "The devices must trust that server's certificate." },
     { name: "threads", label: "Max parallel sessions", type: "number", default: 3, min: 1, max: 10, width: "half" },
     { name: "captureCommands", label: "Capture these commands (Stage 0 = before, Stage 5 = after)", type: "commandsPerCategory",
       rows: 4, default: { [ANY_CATEGORY]: DEFAULT_CAPTURE.join("\n") },
@@ -601,12 +731,27 @@ export const upgradeIos: ToolDef = {
       : `Session ${path.basename(session.dir)} started. Every stage logs into this folder until you press Done.`)
     ctx.summary(`${stageLabel(stage)} - ${STAGES[stage]}: ${devices.length} device(s)`)
     const method = str(params.transferMethod, "ftp-builtin")
-    const ftpIp = (method === "ftp-external" ? str(params.ftpIpExternal) : str(params.ftpIp)).trim() || localIp()
-    let ftp: SingleFileFtpServer | null = null
+    if (method === "https-external" && !/^https:\/\/[^/]+/i.test(str(params.httpsUrlExternal).trim())) {
+      ctx.error("Enter the External HTTPS folder URL, e.g. https://10.1.1.5/ios"); return
+    }
+    const ftpIp = (method === "ftp-external" ? str(params.ftpIpExternal) : method === "https-external" ? urlHost(str(params.httpsUrlExternal))
+      : str(params.ftpIp)).trim() || localIp()
+    let ftp: SingleFileFtpServer | SingleFileHttpsServer | null = null
     if (stage === 1 && method === "ftp-builtin") {
-      ftp = new SingleFileFtpServer(iosFile, flashName(iosFile))
-      try { await ftp.start(Number(process.env.ONSITE_FTP_PORT) || 21) } catch (e) { ctx.error((e as Error).message); return }
-      ctx.info(`Built-in FTP server started on ${ftpIp}:${ftp.port} for this run (read-only, one-time password, serves only ${ftp.fileName}).`)
+      const server = new SingleFileFtpServer(iosFile, flashName(iosFile))
+      try { await server.start(Number(process.env.ONSITE_FTP_PORT) || 21) } catch (e) { ctx.error((e as Error).message); return }
+      ftp = server
+      ctx.info(`Built-in FTP server started on ${ftpIp}:${server.port} for this run (read-only, one-time password, serves only ${server.fileName}).`)
+    }
+    if (stage === 1 && method === "https-builtin") {
+      let server: SingleFileHttpsServer
+      try {
+        server = new SingleFileHttpsServer(iosFile, serverCert(ftpIp), flashName(iosFile))
+        await server.start(num(params.httpsPort, 443))
+      } catch (e) { ctx.error((e as Error).message); return }
+      ftp = server
+      ctx.info(`Built-in HTTPS server started on https://${ftpIp}:${server.port} for this run (read-only, one-time password, ` +
+        `serves only ${server.fileName}). Certificate SHA-256 ${server.certificate.fingerprint.slice(0, 16)}…`)
     }
     // Stage 1 measures its progress in bytes, not in devices: the bar at the top of the results is the
     // transfer itself, which is the only thing happening for the next minutes or hours.
@@ -623,7 +768,7 @@ export const upgradeIos: ToolDef = {
       await ctx.mapParallel(devices, (d) => new Stage(ctx, params, d, stage, iosFile, ftpIp, ftp, onBytes).run(),
         num(params.threads, 3), stage !== 1)
     } finally {
-      if (ftp) { await ftp.stop(); ctx.log("Built-in FTP server stopped") }
+      if (ftp) { await ftp.stop(); ctx.log(`Built-in ${ftp instanceof SingleFileHttpsServer ? "HTTPS" : "FTP"} server stopped`) }
     }
     // Only the rows this stage produced count towards its result - the rows above it belong to earlier stages.
     const rows = ctx.rows().slice(before)

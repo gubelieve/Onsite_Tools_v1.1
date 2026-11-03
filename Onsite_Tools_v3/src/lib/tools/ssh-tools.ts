@@ -34,6 +34,8 @@ export const configDevices: ToolDef = {
       options: [{ value: "Verify mode", label: "Verify mode" }, { value: "Config mode", label: "Config mode (configure terminal first)" }] },
   ],
   columns: [...BASE_COLUMNS, "Output"],
+  // One folder per run under logs/config-devices/ - the before/after pairs Compare Configuration is pointed at.
+  logFolder: true,
   // Verify mode only reads, so it runs straight away; Config mode changes devices and asks first.
   runs: [{ id: "run", label: "Run", confirmIf: { mode: "Config mode" },
     confirm: "Config mode sends these commands through 'configure terminal' on {count} device(s) and changes their running " +
