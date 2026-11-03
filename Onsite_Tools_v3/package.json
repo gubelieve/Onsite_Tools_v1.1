@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 8090",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start -H 127.0.0.1 -p 8090",
     "start:lan": "node scripts/start-lan.mjs",
     "lint": "eslint",

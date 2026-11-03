@@ -3,7 +3,7 @@
 import * as React from "react"
 import { usePathname } from "next/navigation"
 import {
-  Activity, Cable, Camera, Cloud, FileText, GitCompare, Globe, History, LayoutDashboard, ListChecks, Package, Search, Settings,
+  Activity, Cable, Camera, Cloud, FileCode2, FileText, GitCompare, Globe, History, LayoutDashboard, ListChecks, Package, Search, Settings,
   Share2, Shield, ShieldCheck, Terminal, Upload, Wrench, type LucideIcon,
 } from "lucide-react"
 import { SideNav, SideNavHeading, SideNavSection, SideNavItem } from "@astryxdesign/core/SideNav"
@@ -30,6 +30,7 @@ export function AppSidebar({ tools, deviceCount }: { tools: MenuItem[]; deviceCo
       <SideNavSection title="Overview">
         <SideNavItem label="Dashboard" icon={LayoutDashboard} href="/" isSelected={selected("/")} />
         <SideNavItem label={`Site Inventory (${deviceCount})`} icon={ListChecks} href="/site-inventory" isSelected={selected("/site-inventory")} />
+        <SideNavItem label="Command Templates" icon={FileCode2} href="/command-templates" isSelected={selected("/command-templates")} />
         <SideNavItem label="Run History" icon={History} href="/history" isSelected={selected("/history")} />
       </SideNavSection>
       {sections.map((s) => (
