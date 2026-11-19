@@ -1,0 +1,588 @@
+@layer reset, theme, base, astryx-base, astryx-theme, components, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/preflight.css' layer(base);
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import '@astryxdesign/core/reset.css';
+@import '@astryxdesign/core/astryx.css';
+@import '@astryxdesign/theme-neutral/theme.css';
+@import '@astryxdesign/core/tailwind-theme.css';
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* Tailwind's dark: variant follows data-theme, which is what the Astryx root
+   Theme syncs onto <html> (resolved — "system" arrives here as dark or light).
+   The .dark class form is kept for anything that toggled the old way. */
+@custom-variant dark (&:is(.dark *, .dark, [data-theme="dark"] *, [data-theme="dark"]));
+
+/* data-theme → color-scheme, declared HERE and unlayered on purpose. The same
+   mapping exists in the Astryx reset, but as :where() (zero specificity) inside
+   @layer reset (the lowest layer), where any later layer that mentions
+   color-scheme on html quietly wins and light-dark() — which is how EVERY
+   Astryx component takes its dark values — stops following the toggle. */
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
+:root {
+  --radius: 0.625rem;
+  /* A tinted page behind white cards, so the two separate by contrast rather than
+     by a rule drawn between them. Taken from the reference (#F4F7FE): the first
+     attempt was a couple of percent off white and read as the same colour, which
+     left the white sidebar and the white cards dissolving into the ground and
+     each other. The blue cast is what makes the difference legible at this
+     lightness — a neutral grey this close to white just looks like dirt. */
+  --background: #f4f7fe;
+  --foreground: oklch(0.145 0 0);
+  
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  
+  /* Modern Indigo Primary */
+  --primary: oklch(0.45 0.16 260);
+  --primary-foreground: oklch(0.985 0 0);
+  
+  /* Soft Slate Secondary */
+  --secondary: oklch(0.95 0.02 260);
+  --secondary-foreground: oklch(0.3 0.05 260);
+  
+  --muted: oklch(0.95 0.02 260);
+  /* 0.52, not 0.556: the one grey the app has for secondary text sits on four
+     grounds — white cards, the #f4f7fe page, the bg-muted folder-tab band, the
+     sidebar — and at 0.556 (#737373) it cleared WCAG AA only on white (4.74;
+     4.42 on the page, 4.10 on the band). #696969 clears all four (5.49 / 5.12 /
+     4.74 / 4.86). The value itself lives in --muted-foreground-light below,
+     because Astryx's --color-text-secondary has to name both modes' greys at
+     once. */
+  --muted-foreground: var(--muted-foreground-light);
+  
+  --accent: oklch(0.95 0.02 260);
+  --accent-foreground: oklch(0.3 0.05 260);
+  
+  /* Destructive. 0.55 not 0.6: at 0.6 the red was 4.3:1 on a white card, and
+     it is used as TEXT for the most important small lines in the app ("3 days
+     past due", a failed booking's error, the late column). 0.55 is 5.4:1. */
+  --destructive: oklch(0.55 0.2 20);
+  --destructive-foreground: oklch(0.985 0 0);
+
+  /* Guide text in inputs: clearly lighter than a typed value, but readable —
+     the disabled grey it used to borrow (#a3a3a3) is 2.5:1. This is 4.7:1. */
+  --placeholder: oklch(0.556 0 0);
+
+  /* The solid fill behind "a count you must notice" (the bell, the Action
+     required tab). Astryx's badge.error #e33f4a is 4.16:1 under white digits. */
+  --count-badge: #d62f3b;
+
+  /* The cool-grey tint the raised surfaces cast. Transparent in dark mode. */
+  --surface-shadow-tint: rgba(112, 144, 176, 0.18);
+  --panel-shadow: rgba(112, 144, 176, 0.28);
+
+  /* The calendar's overdue edge: on an ordinary tile, and on today's filled
+     primary tile, where it flips to the opposite lightness of the fill. */
+  --cal-overdue: light-dark(#b42318, #ff9d94);
+  --cal-overdue-on-primary: light-dark(#ff9d94, #7a1610);
+
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.45 0.16 260);
+  
+  /* Modern Chart Palette */
+  --chart-1: oklch(0.65 0.16 260);     /* Soft Indigo */
+  --chart-2: oklch(0.7 0.15 160);      /* Emerald / Teal */
+  --chart-3: oklch(0.75 0.15 45);      /* Warm Amber / Orange */
+  --chart-4: oklch(0.6 0.2 340);       /* Vivid Berry / Pink */
+  --chart-5: oklch(0.8 0.1 200);       /* Light Sky Blue */
+  
+  /* Transaction Specific Colors */
+  --chart-inbound: oklch(0.7 0.15 160); /* Emerald */
+  --chart-outbound: oklch(0.65 0.16 260); /* Indigo */
+  --chart-healthy: oklch(0.7 0.15 160); /* Emerald */
+  --chart-lowstock: oklch(0.75 0.15 45); /* Amber */
+  --chart-outofstock: oklch(0.6 0.18 15); /* Coral */
+
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  /* ── Shell chrome and fixed colours ────────────────────────────────────────
+     Lifted out of the rules further down so every colour the stylesheet paints
+     has a name up here. Values are exactly what those rules used to spell out. */
+
+  /* The secondary grey for each mode, stated once. --muted-foreground picks
+     the one for its mode; --color-text-secondary needs both inside one
+     light-dark(), so neither can simply reference the other. Mode-independent
+     on purpose: these are the raw values, not a switch. */
+  --muted-foreground-light: oklch(0.52 0 0);
+  --muted-foreground-dark: oklch(0.708 0 0);
+
+  /* The side navigation's own ground and the rule down its right edge. Dark
+     mode swaps both to the dark surface — see the sidenav rules below. */
+  --sidebar-ground: rgb(241, 241, 241);
+  --sidebar-rule: rgba(112, 144, 176, 0.18);
+
+  /* Page-access switches: green when granted, a step darker on hover. The same
+     in both modes, so the dark block does not restate them. */
+  --access-on: rgb(5, 150, 105);
+  --access-on-hover: rgb(4, 120, 87);
+
+  /* ── Rack and IP ──────────────────────────────────────────────────────────── */
+
+  /* The diagonal hatch over a rack meter's booked segment. That segment is
+     always orange-400, so the ink is the same in both modes. */
+  --rack-hatch-ink: oklch(0 0 0 / 0.18);
+
+  /* Text on the Release pill (ip-table). --destructive clears 4.5:1 on the 10%
+     tint at rest but not on the 20% hover tint; this clears both (5.0:1 light,
+     5.9:1 dark). */
+  --ip-release-ink: light-dark(oklch(0.5 0.19 20), oklch(0.75 0.14 20));
+  /* Its sibling for the Claim pill: primary text on the 20% primary hover tint
+     is 4.13:1 on the dark card. This is 5.42:1 there, and darker in light. */
+  --ip-claim-ink: light-dark(oklch(0.45 0.16 260), oklch(0.72 0.13 260));
+
+  /* ── Booking calendar ──────────────────────────────────────────────────────
+     Every colour the calendar paints, lifted verbatim from the light-dark()
+     literals in bookings-calendar.tsx. The reasoning for each value — why the
+     overdue red is deeper and bolder than the expired rose, why the stripes on
+     today's tile flip to the opposite lightness of the fill — stays in the
+     comments beside TONE and TONE_TODAY there. Each is a light-dark() pair, so
+     the dark block does not restate any of them. */
+  --cal-overdue-ink: light-dark(#b42318, #f0736a);
+  --cal-booked: light-dark(#3f8f5c, #4fae74);
+  --cal-waiting: light-dark(#c99a2e, #dfae44);
+  --cal-live-text: light-dark(#3f3f3f, #c8cbcf);
+  --cal-expired: light-dark(#bf6a60, #c98980);
+  --cal-expired-text: light-dark(#8f5a52, #d9a49c);
+  --cal-finished: light-dark(#c4c4c4, #5a5e63);
+  /* On today's filled primary tile. */
+  --cal-overdue-text-on-primary: light-dark(#ffd9d5, #3d0a07);
+  --cal-booked-on-primary: light-dark(#8fd4aa, #0f4023);
+  --cal-waiting-on-primary: light-dark(#f3cf72, #4a3307);
+  --cal-live-text-on-primary: light-dark(#e8eefb, #10233f);
+  --cal-expired-on-primary: light-dark(#e0a49c, #8a3c35);
+  --cal-expired-text-on-primary: light-dark(#f7d9d4, #4a120d);
+  --cal-finished-on-primary: light-dark(#a9bbe4, #2b3f66);
+  --cal-quiet-text-on-primary: light-dark(#cdd9f2, #182740);
+  /* Edges: hover on chips, cards and tiles; the overdue and expired chips. */
+  --cal-hover-border: light-dark(#c9ced3, #5a5e63);
+  --cal-overdue-chip-border: light-dark(#f0d3cf, #5a2a26);
+  --cal-overdue-chip-hover-border: light-dark(#d9827a, #8a3c35);
+  --cal-expired-chip-border: light-dark(#e8d3d0, #4a2a27);
+  --cal-expired-chip-hover-border: light-dark(#d3aca5, #6b3a34);
+  /* Grounds and date numerals. */
+  --cal-frame: light-dark(#eff3fd, #151619);
+  --cal-spill: light-dark(#f6f8fa, #1e1e21);
+  --cal-date: light-dark(#52525b, #d4d4d8);
+  --cal-date-outside: light-dark(#808080, #8b9096);
+  --cal-date-weekend: light-dark(#bf6a60, #b9817b);
+
+  /* ── Rack occupancy meter (live rack view) ─────────────────────────────────
+     Light ok/warn/full are emerald-600, amber-700 and red-600, not the 500s the
+     meter started with: on the light bg-muted track emerald-500 was 2.13:1 and
+     amber-500 1.85:1, under the 3:1 a graphic needs. Rack layout's own meter uses
+     the same steps. held and booked are the slate-700 / orange-400 they replaced.
+     Dark values are new: the meter used to keep its light colours on the dark
+     card, and slate-700 "holds something" all but vanished there. */
+  --meter-ok: light-dark(oklch(59.6% 0.145 163.225), oklch(76.5% 0.177 163.223));
+  --meter-warn: light-dark(oklch(55.5% 0.163 48.998), oklch(82.8% 0.189 84.429));
+  --meter-full: light-dark(oklch(57.7% 0.245 27.325), oklch(70.4% 0.191 22.216));
+  --meter-held: light-dark(oklch(37.2% 0.044 257.287), oklch(86.9% 0.022 252.894));
+  --meter-booked: oklch(75% 0.183 55.934);
+}
+
+.dark,
+[data-theme="dark"] {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  
+  /* Lighter Indigo Primary for Dark Mode */
+  --primary: oklch(0.65 0.16 260);
+  --primary-foreground: oklch(0.145 0 0);
+  
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: var(--muted-foreground-dark);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  /* Lighter on the dark card, so the fill takes dark ink rather than white. */
+  --destructive: oklch(0.68 0.17 20);
+  --destructive-foreground: oklch(0.145 0 0);
+  /* 0.65, not 0.6: Astryx inputs sit on --color-background-surface (#262626
+     in dark), not on the #171717 card. 0.6 was 3.83:1 there; this is 4.68:1. */
+  --placeholder: oklch(0.65 0 0);
+  --surface-shadow-tint: transparent;
+  --panel-shadow: transparent;
+
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.65 0.16 260);
+  
+  /* Modern Chart Palette (Dark Mode adjustments for contrast) */
+  --chart-1: oklch(0.7 0.16 260);     /* Soft Indigo */
+  --chart-2: oklch(0.75 0.15 160);    /* Emerald / Teal */
+  --chart-3: oklch(0.8 0.15 45);      /* Warm Amber / Orange */
+  --chart-4: oklch(0.65 0.2 340);     /* Vivid Berry / Pink */
+  --chart-5: oklch(0.85 0.1 200);     /* Light Sky Blue */
+  
+  /* Transaction Specific Colors */
+  --chart-inbound: oklch(0.75 0.15 160); /* Emerald */
+  --chart-outbound: oklch(0.7 0.16 260); /* Indigo */
+  --chart-healthy: oklch(0.75 0.15 160); /* Emerald */
+  --chart-lowstock: oklch(0.8 0.15 45); /* Amber */
+  --chart-outofstock: oklch(0.6 0.18 15); /* Coral */
+
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+
+  /* ── Shell chrome (dark) ── counterparts of the :root section above. The
+     access-switch greens and the raw secondary greys carry over unchanged. */
+  --sidebar-ground: var(--sidebar);
+  --sidebar-rule: rgba(255, 255, 255, 0.08);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Cards read as raised surfaces rather than boxed-off regions.
+ *
+ * Every page already reaches for `bg-card rounded-md border p-6`, so restyling
+ * the class restyles the app: no page has to change, and the next one is right
+ * by default. The border goes because the tinted background behind it already
+ * says where the card ends — an outline on top of that is a second answer to a
+ * question that was only asked once.
+ *
+ * The shadow is the cool-grey the surface sits on rather than neutral black,
+ * which is what keeps it reading as depth instead of dirt.
+ */
+.bg-card {
+  border-radius: 20px;
+  border-color: transparent;
+  box-shadow: 0 18px 40px -12px var(--surface-shadow-tint);
+}
+
+/* No shadow in dark mode. The tint is lighter than the dark ground, so under a
+ * card it read as a pale halo rather than depth; the card already separates by
+ * --card being lighter than --background. Stated here as well as through the
+ * token so a later edit to the token block cannot bring the halo back. */
+[data-theme="dark"] .bg-card {
+  box-shadow: none;
+}
+
+/* The chrome is the surface; the content area is the ground.
+ *
+ * AppShell paints its own flat grey across the whole viewport, which covered the
+ * tinted background entirely — the tint was set and never seen. The shell now
+ * carries the tint, and the two pieces of chrome become white surfaces on top of
+ * it, so the sidebar and top bar separate from the content by being a different
+ * colour. That is the same move the cards make, and it is why their borders are
+ * no longer doing any work.
+ */
+.astryx-app-shell {
+  background: var(--background);
+}
+
+/* Three surfaces, each a different colour: grey navigation, tinted ground, white
+ * cards. The sidebar keeps the grey it always had rather than joining the cards
+ * in white — chrome and content reading as the same material was what made the
+ * screen look like one flat sheet. The edge stays too: grey and tint are close
+ * enough in lightness that colour alone is a thin argument at the seam.
+ */
+.astryx-app-shell-sidenav {
+  background: var(--sidebar-ground);
+  border-right: 1px solid var(--sidebar-rule);
+}
+
+/* Dark mode, the sidebar specifically.
+ *
+ * The nav region resolves its light-dark() TEXT on the light side while the
+ * rest of the app is on the dark side — so every label came out dark-grey on
+ * the dark surface and vanished, even though the cards beside it were fixed by
+ * the same --color-text-secondary override. Forcing color-scheme back to dark
+ * on the navigation root (role="navigation" is the SideNav's own element) makes
+ * every Astryx token inside it — label, icon, section title, selected item —
+ * resolve the dark way, which is the one thing they were not doing. The
+ * light-grey ground goes to the dark surface token in the same breath, so the
+ * panel and its text move together. Stated here as well as through
+ * --sidebar-ground/--sidebar-rule, as .bg-card does, so a later edit to the
+ * token block cannot leave a light panel under dark text. */
+[data-theme="dark"] .astryx-app-shell-sidenav {
+  background: var(--sidebar);
+  border-right-color: var(--sidebar-rule);
+}
+[data-theme="dark"] [role="navigation"] {
+  color-scheme: dark;
+}
+
+/* The selected menu item, marked the way the reference does it: the label goes
+ * bold and an accent bar runs down the inner edge. A filled grey pill says
+ * "selected" by covering the row in a colour that competes with the icon and the
+ * label; a bar and a weight change say it without occupying the row.
+ */
+.astryx-app-shell-sidenav [aria-current="page"],
+.astryx-app-shell-sidenav [data-selected="true"] {
+  position: relative;
+  font-weight: 600;
+  background: transparent;
+}
+
+.astryx-app-shell-sidenav [aria-current="page"]::after,
+.astryx-app-shell-sidenav [data-selected="true"]::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 4px;
+  border-radius: 9999px;
+  background: var(--color-primary, currentColor);
+}
+
+/* The account pill keeps its own shape. It carries bg-card for the surface, and
+ * the radius set there would otherwise flatten it to the same 20px as every
+ * other card — the pill reads as a control precisely because it does not.
+ */
+.account-pill {
+  border-radius: 9999px;
+}
+
+/* Page-access switches are green when on; every other switch in the app stays
+ * the near-black Astryx paints from --color-accent.
+ *
+ * That difference is the point. Elsewhere a switch means on/off and the colour
+ * carries no claim. In the department editor each switch is a grant, eleven of
+ * them are read at once, and the admin's question is "what did I just allow" —
+ * a column of black bars answers that with position alone. Green answers it
+ * with colour, which is what the eye reads first.
+ *
+ * !important because the on-state is a StyleX class whose hover variant is an
+ * ancestor selector; matching that specificity from here would mean guessing at
+ * generated class names that change on every Astryx release.
+ */
+.access-switches .astryx-switch.checked {
+  background-color: var(--access-on) !important;
+}
+
+.access-switches .astryx-switch-field:hover .astryx-switch.checked {
+  background-color: var(--access-on-hover) !important;
+}
+
+/* The notification drawer is a Dialog pinned to three edges, so it needs the
+ * one thing Dialog cannot give it: a slide.
+ *
+ * Astryx animates a dialog from the direction of its trigger and scales it up
+ * from 0.95 — correct for something that pops out of a button, wrong for a
+ * panel that belongs to the edge of the screen. Overridden rather than
+ * hand-rolled because everything else Dialog brings (focus trap, Escape,
+ * backdrop, aria-modal, scroll lock, focus restored to the bell) is exactly
+ * what a drawer needs and is tedious to re-implement correctly.
+ *
+ * !important because the animation is a StyleX class; matching its specificity
+ * from here would mean guessing at generated names that change every release.
+ */
+@keyframes noti-drawer-in {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+.noti-drawer {
+  animation-name: noti-drawer-in !important;
+  /* top/bottom pin it, but Dialog's own max-height would still cut it short. */
+  height: 100%;
+  max-height: 100vh !important;
+  border-radius: 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .noti-drawer { animation-name: none !important; }
+}
+
+/* The same trick, but pinned to another dialog rather than to the screen.
+ *
+ * The booking form used to keep a 42U rack diagram in a permanent 400px column,
+ * which left the equipment table too narrow to show a model number. The rack now
+ * arrives on demand and slides over the right half of the booking dialog.
+ *
+ * Against the viewport edge it read as a separate thing: the dialog centres
+ * itself, so on a wide screen there was a lane of backdrop between the two and
+ * the pair looked shoved to the left. Its top/right/bottom are measured off the
+ * dialog in booking-form.tsx, because the dialog's height follows its content
+ * and no CSS expression can name it.
+ *
+ * Kept separate from .noti-drawer rather than renaming it: the bell ships and
+ * works, it really is a screen-edge drawer, and a shared class would make one
+ * surface's tuning the other's problem.
+ * !important for the same reason as above — the animation is a StyleX class.
+ */
+/* A short push plus a fade, not a full-width slide.
+ *
+ * translateX(100%) started the panel one whole panel-width right of where it
+ * lands — entirely off the dialog, travelling across the page behind it — which
+ * read as something flying in from the screen rather than a panel arriving on
+ * the dialog. All the movement now stays over the dialog it belongs to. */
+@keyframes edge-drawer-in {
+  from { opacity: 0; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* The scrim this panel lays over the booking dialog comes in with it. Snapping
+   to full opacity while the panel eases in was most of what read as abrupt. */
+@keyframes edge-drawer-scrim-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.edge-drawer {
+  animation-name: edge-drawer-in !important;
+  /* Astryx's own timing is 400ms on cubic-bezier(0.24, 1, 0.4, 1), a curve that
+     reaches its end value almost at once and then crawls. Over a 40px move that
+     is a long slow tail and it reads as sluggish, not smooth. Shorter, with a
+     curve that carries speed through the middle and settles once. */
+  animation-duration: 280ms !important;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1) !important;
+  /* top and bottom pin it to the dialog underneath; height has to give way to
+     them, and Dialog's base style sets height: fit-content. */
+  height: auto !important;
+  /* Flush with the dialog's right corners, square where it crosses the middle. */
+  border-start-start-radius: 0 !important;
+  border-end-start-radius: 0 !important;
+  border-inline-start: 1px solid var(--border);
+}
+
+.edge-drawer::backdrop {
+  animation: edge-drawer-scrim-in 280ms cubic-bezier(0.32, 0.72, 0, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edge-drawer,
+  .edge-drawer::backdrop { animation-name: none !important; }
+}
+
+/* Astryx asks for Figtree — which is never loaded — for every heading, every
+ * <p>, the dialog title and its text inputs, so those fell through to Segoe UI
+ * while every div/span/td/badge rendered in Geist: the whole app was quietly set
+ * in two typefaces. Pointing the three family tokens at the fonts the app
+ * actually loads makes it one.
+ *
+ * On [data-astryx-theme] — which is <html> — and not lower: Astryx's StyleX
+ * tokens are resolved on <html>, so a value declared on <body> never reaches
+ * them (measured: a body-level override changed nothing). A custom property
+ * that references var(--x) is resolved on the element that declares it, which
+ * is why layout.tsx puts the next/font variables on <html> as well: with them
+ * one level down on <body>, this rule's var(--font-geist-sans) found nothing,
+ * went invalid, and the theme's Figtree silently won. Unlayered here, which
+ * outranks the theme's @layer at equal specificity. Only custom properties —
+ * no font-family on elements — so this cannot recreate the class of override
+ * problem .bg-card already has.
+ *
+ * --color-text-secondary is Astryx's own secondary grey (table headers, Text
+ * color="secondary", side-nav section titles); it is set to the same value as
+ * --muted-foreground so two near-identical greys never sit side by side in one
+ * table.
+ */
+[data-astryx-theme] {
+  --font-family-heading: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-family-body: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-family-code: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* light-dark(), not a bare value: this override replaces an Astryx token
+     that is itself light-dark(), so a single colour here would freeze
+     EVERY supporting text, table header and side-nav label at the light
+     ink — which in dark mode is dark-grey on a dark card, the one screen
+     dark mode shipped with. Each side pairs with --muted-foreground for
+     its mode, which is the whole point of the override. The two greys are
+     the raw tokens --muted-foreground itself reads, so the pair cannot drift.
+     var() substitutes on <html> but light-dark() still resolves where the
+     colour is used, so the forced color-scheme on the side nav keeps working. */
+  --color-text-secondary: light-dark(var(--muted-foreground-light), var(--muted-foreground-dark));
+}
+
+/* Guide text has to read as guide text. Astryx's inputs paint placeholders in
+   the SECONDARY text colour, which sits close enough to typed text that a
+   filled row and an empty one look alike. --placeholder sits between the two:
+   well short of typed text, but not the disabled grey (#a3a3a3, 2.5:1), which
+   nobody could read. Unlayered on purpose: it must outrank the astryx layers. */
+input::placeholder,
+textarea::placeholder {
+  color: var(--placeholder);
+}
+
+/* The exception: a few placeholders REPORT a live value rather than suggest
+   one — the hostname the scan found, the name the catalogue currently says.
+   Those must stay readable; wrap the input in this class. */
+.placeholder-live input::placeholder,
+.placeholder-live textarea::placeholder {
+  color: var(--color-text-secondary);
+}
+
+/* Onsite Tools: no web fonts - the app must build and run without internet access. */
+:root {
+  --font-geist-sans: "Segoe UI", system-ui, -apple-system, "Noto Sans Thai", Roboto, sans-serif;
+  --font-geist-mono: Consolas, "Cascadia Mono", "Courier New", monospace;
+}
+.result-table, .result-table th, .result-table td { border-color: var(--border); }

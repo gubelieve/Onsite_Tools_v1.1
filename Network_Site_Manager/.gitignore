@@ -1,0 +1,11 @@
+/node_modules
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+npm-debug.log*
+.env*
+!.env.example
+
+# The repository root .gitignore (Python template) ignores every "lib/" folder - this one is source code.
+!/src/lib/
