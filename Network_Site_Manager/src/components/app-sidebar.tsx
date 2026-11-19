@@ -1,7 +1,7 @@
 "use client"
 
 import { usePathname } from "next/navigation"
-import { Building2, LayoutDashboard, Network, Server } from "lucide-react"
+import { Building2, FileUp, LayoutDashboard, Network, Server, Share2 } from "lucide-react"
 import { SideNav, SideNavHeading, SideNavSection, SideNavItem } from "@astryxdesign/core/SideNav"
 
 export interface SiteLink { code: string; name: string }
@@ -16,6 +16,10 @@ export function AppSidebar({ sites }: { sites: SiteLink[] }) {
         <SideNavItem label="Dashboard" icon={LayoutDashboard} href="/" isSelected={selected("/")} />
         <SideNavItem label="All sites" icon={Building2} href="/sites" isSelected={pathname === "/sites"} />
         <SideNavItem label="All devices" icon={Server} href="/devices" isSelected={selected("/devices")} />
+      </SideNavSection>
+      <SideNavSection title="Configuration">
+        <SideNavItem label="Import configuration" icon={FileUp} href="/import" isSelected={selected("/import")} />
+        <SideNavItem label="Diagram" icon={Share2} href="/diagram" isSelected={selected("/diagram")} />
       </SideNavSection>
       <SideNavSection title="Sites">
         {sites.map((s) => (

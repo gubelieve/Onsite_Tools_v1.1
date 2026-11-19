@@ -10,6 +10,9 @@ services:
     restart: unless-stopped
     expose:
       - "3000"
+    # Imported running-configs. Without a volume they vanish on every rebuild.
+    volumes:
+      - nsm-data:/app/data
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
@@ -26,3 +29,6 @@ services:
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  nsm-data:

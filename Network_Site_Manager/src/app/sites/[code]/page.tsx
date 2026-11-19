@@ -1,7 +1,9 @@
 import { Fragment } from "react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import { FileUp, Share2 } from "lucide-react"
 import { Badge } from "@astryxdesign/core/Badge"
+import { Button } from "@astryxdesign/core/Button"
 import { DataTable, Td } from "@/components/data-table"
 import { PageHeader, Panel } from "@/components/page-header"
 import { getSite } from "@/lib/data"
@@ -27,7 +29,11 @@ export default async function SitePage({ params }: { params: Promise<{ code: str
       <PageHeader
         title={`${site.code} · ${site.name}`}
         description={site.note ?? undefined}
-        actions={<Badge variant={SITE_STATUS[site.status].variant} label={SITE_STATUS[site.status].label} />}
+        actions={<>
+          <Badge variant={SITE_STATUS[site.status].variant} label={SITE_STATUS[site.status].label} />
+          <Button variant="secondary" size="sm" label="Import config" icon={<FileUp className="h-3.5 w-3.5" />} href={`/import?site=${site.code}`} />
+          <Button variant="secondary" size="sm" label="Diagram" icon={<Share2 className="h-3.5 w-3.5" />} href={`/diagram?site=${site.code}`} />
+        </>}
       />
 
       <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
@@ -46,7 +52,7 @@ export default async function SitePage({ params }: { params: Promise<{ code: str
       </div>
 
       <Panel title={`Devices (${site.devices.length})`}>
-        <DataTable head={["Hostname", "Mgmt IP", "Role", "Vendor / Model", "Serial", "OS", "Status", "Last seen"]} empty={site.devices.length === 0}>
+        <DataTable head={["Hostname", "Mgmt IP", "Role", "Vendor / Model", "Serial", "OS", "Status", "Last seen", "Config"]} empty={site.devices.length === 0}>
           {site.devices.map((d) => (
             <tr key={d.id}>
               <Td><span className="font-medium">{d.hostname}</span></Td>
@@ -57,6 +63,7 @@ export default async function SitePage({ params }: { params: Promise<{ code: str
               <Td mono>{d.osVersion ?? "—"}</Td>
               <Td><Badge variant={DEVICE_STATUS[d.status].variant} label={DEVICE_STATUS[d.status].label} /></Td>
               <Td>{formatSeen(d.lastSeen)}</Td>
+              <Td>{d.configImportedAt ? <span title="วันที่ Import config ล่าสุด">{formatSeen(d.configImportedAt)}</span> : <span className="text-muted-foreground">—</span>}</Td>
             </tr>
           ))}
         </DataTable>

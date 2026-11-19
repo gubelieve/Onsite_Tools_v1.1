@@ -14,6 +14,34 @@
 | `/sites` | รายชื่อ Site ทั้งหมด ค้นหาและกรองตามสถานะได้ |
 | `/sites/[code]` | รายละเอียด Site: ข้อมูลติดต่อ, Health, อุปกรณ์, Subnet / VLAN, วงจร WAN |
 | `/devices` | อุปกรณ์ทุกตัวจากทุก Site |
+| `/import` | **Import configuration**: อัปโหลด running-config เพื่ออัปเดตข้อมูลอุปกรณ์และ Subnet/VLAN ของ Site |
+| `/diagram` | **Diagram**: วาด topology ของ Site จาก config ที่ Import มา |
+
+## Import configuration
+
+- เลือก Site แล้วลากไฟล์ `show running-config` มาวาง (1 ไฟล์ต่อ 1 อุปกรณ์, ไฟล์ละไม่เกิน 2 MB, ครั้งละไม่เกิน 50 ไฟล์) หรือวางเป็นข้อความ
+- หน้าเว็บจะแสดงผลการอ่านให้ตรวจก่อน (hostname, platform, version, จำนวน interface/IP/VLAN, Mgmt IP) และบอกว่าแต่ละไฟล์จะอัปเดตอุปกรณ์เดิม เพิ่มอุปกรณ์ใหม่ หรือแทนที่ config เดิม
+- รองรับ syntax แบบ Cisco IOS / IOS-XE / NX-OS และ Aruba AOS-CX
+- ผลที่ได้: อุปกรณ์ hostname เดียวกันจะได้ OS version และ Mgmt IP จาก config (ลำดับที่ใช้เลือก Mgmt IP: interface ที่ชื่อหรือ description เป็น mgmt/management → Loopback0 → SVI แรก → IP แรก), hostname ใหม่กลายเป็นอุปกรณ์ใหม่, และ interface ที่มี IP จะเพิ่ม Subnet ที่ Site ยังไม่มี
+- Config เก็บเป็นไฟล์ใน `data/configs/<SITE>/<hostname>.json` (อยู่ใน .gitignore) โดยเก็บแค่ข้อความดิบและอ่านใหม่ทุกครั้ง พอต่อฐานข้อมูลแล้วจะย้ายไปตาราง `device_configs` (model `DeviceConfig` ใน schema) โดยแก้แค่ `src/lib/config-store.ts`
+- ลองใช้งานได้ด้วยไฟล์ตัวอย่างใน `samples/configs/BKK-HQ/` (ข้อมูลสมมติ)
+
+## Diagram
+
+running-config ไม่ได้บอกว่าพอร์ตไหนต่อกับอะไร เส้นเชื่อมจึง**อนุมาน**จาก 2 หลักฐาน (วางเมาส์บนเส้นเพื่อดูว่ามาจากหลักฐานไหน):
+
+1. **IP วงเดียวกันแบบ /30 หรือ /31** ระหว่างสองอุปกรณ์ → link แบบ point-to-point
+2. **Description ของ interface ระบุชื่ออุปกรณ์ปลายทาง** เช่น `TO HQ-CORE-01 Gi1/0/10` ถ้าระบุชื่อ interface ปลายทางด้วย ทั้งสองฝั่งจะถูกจับคู่เป็นเส้นเดียว
+
+นอกจากนี้:
+- Member ของ Port-channel ที่ชี้ไปอุปกรณ์เดียวกับ Port-channel จะรวมเป็น link เดียว
+- Subnet วงใหญ่กว่า /30 ที่อุปกรณ์ตั้งแต่ 2 ตัวขึ้นไปใช้ร่วมกัน แสดงเป็น LAN segment (VLAN)
+- อุปกรณ์ที่ถูกอ้างถึงใน description แต่ยังไม่ได้ Import config จะแสดงเป็นกรอบเส้นประ (เฉพาะอุปกรณ์ที่มีอยู่ใน Site)
+- Interface ที่ shutdown จะไม่ถูกนำมาใช้
+
+การใช้งาน: ลากอุปกรณ์เพื่อจัดตำแหน่ง (ตำแหน่งจะถูกจำไว้ใน browser นั้น), ลากพื้นหลังเพื่อเลื่อน, ใช้ล้อเมาส์เพื่อซูม, คลิกอุปกรณ์เพื่อดูตาราง interface และกด Download SVG เพื่อบันทึกภาพ
+
+> ยังไม่มีระบบ login ทุกคนที่เข้าเว็บได้จะ Import และลบ config ได้ ต้องเพิ่ม auth ก่อนเปิดให้ใช้งานจริง
 
 ## รันบนเครื่อง
 

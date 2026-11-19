@@ -54,6 +54,7 @@ model Site {
   devices  Device[]
   subnets  Subnet[]
   circuits Circuit[]
+  configs  DeviceConfig[]
 
   @@map("sites")
 }
@@ -89,6 +90,23 @@ model Subnet {
 
   @@unique([siteId, cidr])
   @@map("subnets")
+}
+
+/// A running-config imported on the Import configuration page, one per
+/// device (re-importing a hostname replaces it). Only the raw text is kept;
+/// it is parsed on read so parser fixes apply to old imports too. Today these
+/// live as files (src/lib/config-store.ts); this is their database shape.
+model DeviceConfig {
+  id         Int      @id @default(autoincrement())
+  siteId     Int      @map("site_id")
+  hostname   String
+  fileName   String   @map("file_name")
+  raw        String
+  importedAt DateTime @default(now()) @map("imported_at")
+  site       Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, hostname])
+  @@map("device_configs")
 }
 
 /// A WAN / Internet link into a site.

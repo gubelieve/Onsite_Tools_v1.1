@@ -68,6 +68,7 @@ export const DEVICES: Device[] = Object.entries(DEVICE_SEEDS).flatMap(([siteId, 
     osVersion: vendor === "Cisco" ? "17.9.4a" : vendor === "Fortinet" ? "7.2.8" : vendor === "Aruba" ? "10.13" : "10.2.9",
     status,
     lastSeen: status === "DOWN" || status === "UNKNOWN" ? new Date(SEEN.getTime() - 6 * 3600_000) : SEEN,
+    configImportedAt: null,
   })),
 )
 

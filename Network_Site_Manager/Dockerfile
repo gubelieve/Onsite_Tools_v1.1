@@ -31,6 +31,11 @@ COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/public ./public
 
+# Imported configs are written here (src/lib/config-store.ts). Created owned
+# by node so a named volume mounted on it inherits a writable owner.
+ENV DATA_DIR=/app/data
+RUN mkdir -p /app/data && chown node:node /app/data
+
 USER node
 EXPOSE 3000
 CMD ["node", "server.js"]

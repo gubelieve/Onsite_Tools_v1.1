@@ -17,6 +17,8 @@ export interface Device {
   osVersion: string | null
   status: DeviceStatus
   lastSeen: Date | null
+  /** When a running-config for this device was last imported, if ever. */
+  configImportedAt: Date | null
 }
 
 export interface Subnet {
@@ -61,6 +63,7 @@ export interface SiteSummary extends Site {
   deviceCount: number
   devicesDown: number
   devicesWarning: number
+  configCount: number
 }
 
 export const ROLE_LABEL: Record<DeviceRole, string> = {
