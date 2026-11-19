@@ -1,6 +1,5 @@
 # CI for both editions kept in this repository:
 #   * Onsite_Tools_v3 - the Next.js / TypeScript web app (lint, typecheck, tests, build)
-#   * Network_Site_Manager - per-site network web app (lint, typecheck, tests, build)
 #   * the v1.1 PySide6 desktop app at the repository root - no automated tests, only a syntax gate
 # The Python v2 web edition was removed in favour of v3.
 
@@ -52,30 +51,6 @@ jobs:
         npm run lint
         npm run typecheck
     - name: Unit tests (parsers, inventory, SSH driver against a fake device)
-      run: npm test
-    - name: Production build
-      run: npm run build
-
-  network-site-manager:
-    name: Network_Site_Manager
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: Network_Site_Manager
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
-      with:
-        node-version: 22
-        cache: npm
-        cache-dependency-path: Network_Site_Manager/package-lock.json
-    - name: Install dependencies
-      run: npm ci --no-audit --no-fund
-    - name: Lint and typecheck
-      run: |
-        npm run lint
-        npm run typecheck
-    - name: Unit tests
       run: npm test
     - name: Production build
       run: npm run build
