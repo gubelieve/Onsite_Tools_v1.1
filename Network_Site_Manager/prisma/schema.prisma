@@ -1,0 +1,124 @@
+// Network Site Manager — data model.
+//
+// PostgreSQL through the Prisma pg adapter, the same as Lab_management. Not
+// connected yet: the first pages read src/lib/sample-data.ts, whose types
+// mirror these models one for one so swapping the data source is a change to
+// src/lib/data.ts only.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum SiteStatus {
+  ONLINE
+  DEGRADED
+  OFFLINE
+}
+
+enum DeviceRole {
+  ROUTER
+  CORE_SWITCH
+  ACCESS_SWITCH
+  FIREWALL
+  WLC
+  ACCESS_POINT
+  OTHER
+}
+
+enum DeviceStatus {
+  UP
+  DOWN
+  WARNING
+  UNKNOWN
+}
+
+/// One customer or branch location the team looks after.
+model Site {
+  id        Int        @id @default(autoincrement())
+  code      String     @unique // short code used everywhere, e.g. "BKK-HQ"
+  name      String
+  customer  String
+  region    String
+  address   String?
+  status    SiteStatus @default(ONLINE)
+  contact   String?
+  phone     String?
+  note      String?
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  devices  Device[]
+  subnets  Subnet[]
+  circuits Circuit[]
+  configs  DeviceConfig[]
+
+  @@map("sites")
+}
+
+/// A managed network device at a site, keyed by hostname within the site.
+model Device {
+  id        Int          @id @default(autoincrement())
+  siteId    Int          @map("site_id")
+  hostname  String
+  mgmtIp    String       @map("mgmt_ip")
+  role      DeviceRole
+  vendor    String
+  model     String
+  serial    String?
+  osVersion String?      @map("os_version")
+  status    DeviceStatus @default(UNKNOWN)
+  lastSeen  DateTime?    @map("last_seen")
+  site      Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, hostname])
+  @@map("devices")
+}
+
+/// An IP range in use at a site, with its VLAN.
+model Subnet {
+  id      Int     @id @default(autoincrement())
+  siteId  Int     @map("site_id")
+  cidr    String
+  vlan    Int?
+  name    String
+  gateway String?
+  site    Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, cidr])
+  @@map("subnets")
+}
+
+/// A running-config imported on the Import configuration page, one per
+/// device (re-importing a hostname replaces it). Only the raw text is kept;
+/// it is parsed on read so parser fixes apply to old imports too. Today these
+/// live as files (src/lib/config-store.ts); this is their database shape.
+model DeviceConfig {
+  id         Int      @id @default(autoincrement())
+  siteId     Int      @map("site_id")
+  hostname   String
+  fileName   String   @map("file_name")
+  raw        String
+  importedAt DateTime @default(now()) @map("imported_at")
+  site       Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, hostname])
+  @@map("device_configs")
+}
+
+/// A WAN / Internet link into a site.
+model Circuit {
+  id        Int     @id @default(autoincrement())
+  siteId    Int     @map("site_id")
+  provider  String
+  circuitId String  @map("circuit_id")
+  type      String // MPLS, Internet, SD-WAN, Leased line ...
+  bandwidth String
+  status    DeviceStatus @default(UNKNOWN)
+  site      Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@map("circuits")
+}

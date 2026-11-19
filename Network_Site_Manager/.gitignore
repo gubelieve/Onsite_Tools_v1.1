@@ -1,0 +1,14 @@
+/node_modules
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+npm-debug.log*
+.env*
+!.env.example
+
+# Imported device configs (Import configuration page) - customer data, never commit.
+/data/
+
+# The repository root .gitignore (Python template) ignores every "lib/" folder - this one is source code.
+!/src/lib/
